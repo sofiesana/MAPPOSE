@@ -1,0 +1,6 @@
+rware
+gymnasium
+numpy
+pandas
+scikit-learn
+torch
