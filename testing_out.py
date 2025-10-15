@@ -4,7 +4,7 @@ import numpy as np
 
 N_TRAIN_EPISODES = 3
 N_TEST_EPISODES = 3
-ITERS = 5
+ITERS = 1
 
 def run_episode(env, agent, mode):
     """Run a single episode and return the episode return"""
@@ -65,7 +65,7 @@ def run_environment(args):
     for iteration in range(ITERS):
         print(f"Iteration {iteration + 1}/{ITERS}")
         # add iteration to args
-        env = gym.make("rware-tiny-2ag-v2")
+        env = gym.make("rware-medium-2ag-v2")
         agent = 0
         # make_data_folder(agent.path)
         
