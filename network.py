@@ -6,30 +6,32 @@ import numpy as np
 
 class Critic_Network(nn.Module): # shared value network
     """
-    Inputs: sequences of concatenated agent observations.
-    Outputs: scalar value per timestep (centralized training)
+    Inputs: flattened representation of the full map (global state) over time
+    Outputs: values per timestep in input sequence
     """
-    def __init__(self, input_size, hidden_size=128, num_layers=1):
+    def __init__(self, map_size, hidden_size=128, num_layers=1):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
         # GRU for temporal dependencies (handling partial observability)
-        self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size,
-                          num_layers=num_layers, batch_first=True)
+        self.gru = nn.GRU(input_size=map_size,
+                          hidden_size=hidden_size,
+                          num_layers=num_layers,
+                          batch_first=True)
 
-        # Value head: scalar output per timestep
+        # Value head
         self.value_head = nn.Linear(hidden_size, 1)
 
-    def forward(self, joint_obs_seq, h0=None):
+    def forward(self, full_map_seq, h0=None):
         """
-        joint_obs_seq: (batch_size, sequence_length, input_size) where input_size = sum(obs_sizes of all agents)
-        h0: initial hidden state for GRU (num_layers, batch_size, hidden_size)
+        full_map_seq: (batch_size, sequence_length, map_size)
+        h0: optional GRU initial hidden state (num_layers, batch_size, hidden_size)
         Returns:
             - values: (batch_size, sequence_length, 1)
             - h_n: GRU hidden state
         """
-        out, h_n = self.gru(joint_obs_seq, h0)
+        out, h_n = self.gru(full_map_seq, h0)
         values = self.value_head(out)
         return values, h_n
     
