@@ -6,6 +6,25 @@ N_TRAIN_EPISODES = 3
 N_TEST_EPISODES = 3
 ITERS = 5
 
+def inspect_environment(env):
+    print("Observation space:", env.observation_space)
+    print("Action space:", env.action_space)
+
+    obs, _ = env.reset()
+    print("\nExample observation (type, shape):")
+    if isinstance(obs, (list, tuple)):
+        print(f"Number of agents: {len(obs)}")
+        for i, ob in enumerate(obs):
+            print(f"Agent {i} obs shape: {np.array(ob).shape} | type: {type(ob)}")
+            print(f"Agent {i} obs sample:\n{np.array(ob)}\n")
+    else:
+        print(f"Obs shape: {np.array(obs).shape} | type: {type(obs)}")
+        print(obs)
+
+
+
+
+
 def run_episode(env, agent, mode):
     """Run a single episode and return the episode return"""
     observation, _ = env.reset()
@@ -80,3 +99,4 @@ def run_environment(args):
 
 if __name__ == "__main__":
     run_environment(None)
+    # inspect_environment(gym.make("rware-tiny-2ag-v2"))
