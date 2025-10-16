@@ -1,6 +1,6 @@
 from agents.agent import Agent
 from agents.soft_actor_critic_agent import SAC
-from agents.random import Random
+from agents.random_agent import Random
 
 class AgentFactory:
     """
