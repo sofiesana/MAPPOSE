@@ -44,7 +44,9 @@ def run_episode(env, agent, mode):
             next_observations=new_observation,
             dones=terminated
         )
-        buffer.print_buffer()
+        # buffer.print_buffer()
+        batch = buffer.sample_agent_batch(agent_index=0, batch_size=10)
+        # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
 
         ep_return.append(reward)
         

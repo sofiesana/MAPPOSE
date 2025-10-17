@@ -52,8 +52,13 @@ class Buffer:
                 
     
     def sample_agent_batch(self, agent_index, batch_size):
-        #  get batchof sequential samples for rnn
+        #  get batch of sequential samples for rnn
+        if self.current_size < batch_size:
+            print("Not enough samples in buffer to sample the requested batch size.")
+            return None
         max_index = self.current_size
-        indices = np.random.choice(max_index, size=batch_size, replace=False)
-        return (self.global_states[indices], self.observations[indices], self.actions[indices],
-                self.rewards[indices], self.next_states[indices], self.dones[indices])
+        start_index = np.random.randint(0, max_index - batch_size + 1)
+        indices = np.arange(start_index, start_index + batch_size)
+        print(f"Sampling agent {agent_index} batch at indices: {indices}")
+        return (self.global_states[indices, agent_index], self.observations[indices, agent_index], self.actions[indices, agent_index],
+                self.rewards[indices, agent_index], self.next_observations[indices, agent_index], self.dones[indices, agent_index])
