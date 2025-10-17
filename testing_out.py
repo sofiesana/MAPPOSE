@@ -1,6 +1,8 @@
 import gymnasium as gym
 import rware
 import numpy as np
+from util import get_full_state
+from buffer import Buffer
 
 N_TRAIN_EPISODES = 3
 N_TEST_EPISODES = 3
@@ -8,6 +10,19 @@ ITERS = 1
 
 def run_episode(env, agent, mode):
     """Run a single episode and return the episode return"""
+
+    global_state_dim = len(get_full_state(env))
+    
+    n_agents = len(env.observation_space)
+    print("Number of agents:", n_agents)
+    
+    observation_dim = env.observation_space[0].shape[0]
+    print("Observation Space:", observation_dim)
+
+    buffer = Buffer(size=1000, n_agents=n_agents, global_state_dim=global_state_dim,
+                    observation_dim=observation_dim)
+    buffer.print_attributes()
+    
     observation, _ = env.reset()
     episode_ended = False
     ep_return = []
@@ -18,7 +33,19 @@ def run_episode(env, agent, mode):
         step_counter += 1
         # action = agent.choose_action(observation)
         action = env.action_space.sample()  # Random action for placeholder
-        new_observation, reward, terminated, truncated, _ = env.step(action)
+        new_observation, reward, terminated, truncated, info = env.step(action)
+        global_state = get_full_state(env)
+        
+        buffer.store_transitions(
+            global_states=global_state,
+            observations=observation,
+            actions=action,
+            rewards=reward,
+            next_observations=new_observation,
+            dones=terminated
+        )
+        buffer.print_buffer()
+
         ep_return.append(reward)
         
         if mode == 'train':
@@ -47,7 +74,7 @@ def run_episodes(env, agent, num_episodes, mode='train'):
             agent.store_return(ep_return)
         elif mode == 'test':
             agent.store_test_return(ep_return)
-        print(f"Episode {ep} | return: {ep_return} | terminated: {bool(terminated)}")
+        # print(f"Episode {ep} | return: {ep_return} | terminated: {bool(terminated)}")
 
     if mode == 'train':
         agent.save_rewards()
@@ -65,7 +92,7 @@ def run_environment(args):
     for iteration in range(ITERS):
         print(f"Iteration {iteration + 1}/{ITERS}")
         # add iteration to args
-        env = gym.make("rware-medium-2ag-v2")
+        env = gym.make("rware-tiny-2ag-v2")
         agent = 0
         # make_data_folder(agent.path)
         

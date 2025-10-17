@@ -1,0 +1,59 @@
+import numpy as np
+
+
+
+class Buffer:
+    def __init__(self, size, n_agents, global_state_dim, observation_dim):
+        self.size = size
+        self.n_agents = n_agents
+        self.global_state_dim = global_state_dim
+        self.observation_dim = observation_dim
+        
+        self.current_index = 0
+        self.current_size = 0
+
+        self.global_states = np.zeros((size, n_agents, global_state_dim))
+        self.observations = np.zeros((size, n_agents, observation_dim))
+        self.actions = np.zeros((size, n_agents))
+        self.rewards = np.zeros((size, n_agents))
+        self.next_observations = np.zeros((size, n_agents, observation_dim))
+        self.dones = np.zeros((size, n_agents), dtype=bool)
+
+    def print_attributes(self):
+        print("############## Buffer Attributes:")
+        print(f"Buffer size: {self.size}")
+        print(f"Number of agents: {self.n_agents}")
+        print(f"Global state dimension: {self.global_state_dim}")
+        print(f"Observation dimension: {self.observation_dim}")
+        print(f"Current index: {self.current_index}")
+        print(f"Current size: {self.current_size}")
+    
+    def store_transitions(self, global_states, observations, actions, rewards, next_observations, dones):
+        self.global_states[self.current_index] = global_states
+        self.observations[self.current_index] = observations
+        self.actions[self.current_index] = actions
+        self.rewards[self.current_index] = rewards
+        self.next_observations[self.current_index] = next_observations
+        self.dones[self.current_index] = dones
+
+        self.current_index = (self.current_index + 1) % self.size
+        if self.current_size < self.size:
+            self.current_size += 1
+            
+    def print_buffer(self):
+        # pprint buffer contents per agent, untruncated 
+        print("############## Buffer Contents:")
+        for ag in range(self.n_agents):
+            print(f"--- Agent {ag} ---")
+            for i in range(self.current_size):
+                print(f"Index {i}: GS: {self.global_states[i, ag]}, Obs: {self.observations[i, ag]}, "
+                      f"Act: {self.actions[i, ag]}, Rew: {self.rewards[i, ag]}, "
+                      f"Next Obs: {self.next_observations[i, ag]}, Done: {self.dones[i, ag]}")
+                
+    
+    def sample_agent_batch(self, agent_index, batch_size):
+        #  get batchof sequential samples for rnn
+        max_index = self.current_size
+        indices = np.random.choice(max_index, size=batch_size, replace=False)
+        return (self.global_states[indices], self.observations[indices], self.actions[indices],
+                self.rewards[indices], self.next_states[indices], self.dones[indices])
