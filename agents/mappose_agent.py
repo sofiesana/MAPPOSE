@@ -8,7 +8,7 @@ from agents.agent import Agent
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, memory_size, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, epsilon = 0.1, tau=0.005):
+    def __init__(self, memory_size, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, beta = 1, epsilon = 0.1, tau=0.005):
         super().__init__(memory_size, state_dim, n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -27,6 +27,7 @@ class MAPPOSE(Agent):
         self.tau = tau
         self.num_agents = num_agents
         self.epsilon = epsilon
+        self.beta = beta
 
         # Initialize the state-value networks and their target networks
         self.critic_model = Critic_Network(num_input_neurons=state_dim)
@@ -59,12 +60,16 @@ class MAPPOSE(Agent):
 
         self.critic_model_target.load_state_dict(target_state_dict)
 
-    def update_prev_actor_models(self):
+    def update_prev_actor_model(self, agent_idx):
         """Change the previous actor model to the new updated model
+        Args:
+            - agent_idx: index of agent to update networks
         """
 
-        for prev_actor, new_actor in zip(self.actor_prev_models_list, self.actor_models_list):
-            prev_actor.load_state_dict(new_actor.state_dict())
+        self.actor_prev_models_list[agent_idx].load_state_dict(self.actor_models_list[agent_idx].state_dict())
+
+        # for prev_actor, new_actor in zip(self.actor_prev_models_list, self.actor_models_list):
+        #     prev_actor.load_state_dict(new_actor.state_dict())
    
     def choose_action(self, obs_list):
         """Choose actions for all agents based on their observations
@@ -144,13 +149,13 @@ class MAPPOSE(Agent):
             current_log_probs, entropies = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_models_list[n], get_entropy=True)
             old_log_probs = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_prev_models_list[n])
             policy_ratio = torch.exp(current_log_probs - old_log_probs)
-            individual_clipped_obj = min(policy_ratio * advantages, torch.clamp(policy_ratio, 1.0-self.epsilon, 1.0+self.epsilon) * advantages)
+            individual_clipped_obj = min(policy_ratio * advantages, torch.clamp(policy_ratio, 1.0 - self.epsilon, 1.0 + self.epsilon) * advantages)
             individual_loss = -(individual_clipped_obj + entropies)
 
             ## Get Shared Experience Loss ##
             total_shared_loss = 0
             for not_n in range(self.num_agents):
-                if not_n != n:
+                if not_n != n: # For each other agent
                     ### TODO Get batch of only agent not_n's trajectories
                     states, next_states, obs_list, actions_list, rewards, dones = self.sample_buffer(self.batch_size) # Get batch of agent not_n's trajectories
 
@@ -159,20 +164,31 @@ class MAPPOSE(Agent):
                     rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
                     dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
 
+                    advantages = None # TODO still gotta do this with rewards-to-go
+
                     current_log_probs_agent_n, entropies_agent_n = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_models_list[n], get_entropy=True)
                     current_log_probs_agent_not_n, entropies_agent_not_n = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_models_list[not_n], get_entropy=True)
                     old_log_probs = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_prev_models_list[n])
 
-                    policy_ratio = torch.exp(current_log_probs - old_log_probs)
+                    policy_ratio = torch.exp(current_log_probs_agent_n - old_log_probs) # Agent n's policy ratio using agent not_n's trajetories
                     individual_clipped_obj = min(policy_ratio * advantages, torch.clamp(policy_ratio, 1.0-self.epsilon, 1.0+self.epsilon) * advantages)
 
-                    shared_experience_ratio = torch.exp(current_log_probs - current_log_probs_agent_not_n)
+                    shared_experience_ratio = torch.exp(current_log_probs_agent_n - current_log_probs_agent_not_n) # Importance sampling between agent n and not_n
 
                     # TODO I do not know exactly what to do with the entropy part, ill just do it on agent n
                     shared_loss = -(individual_clipped_obj + entropies_agent_n) * shared_experience_ratio
 
                     total_shared_loss += shared_loss
 
-            total_actor_loss = individual_loss + total_shared_loss
+            mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
+            total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
 
+            self.update_prev_actor_model(n) # Update prev network to current before optimizing current
+
+            # Optimize policy network
+            self.optimizers_actor_list[n].zero_grad()
+            total_actor_loss.backward()
+            self.optimizers_actor_list[n].step()
+
+            self.update_target_model()
 
