@@ -11,15 +11,9 @@ ITERS = 1
 def run_episode(env, agent, mode):
     """Run a single episode and return the episode return"""
 
-    global_state_dim = get_full_state(env).shape
-    print("Global State Dimension:", global_state_dim)
-    
+    global_state_dim = get_full_state(env, flatten=True).shape
     n_agents = len(env.observation_space)
-    print("Number of agents:", n_agents)
-    
     observation_dim = env.observation_space[0].shape[0]
-    print("Observation Space:", observation_dim)
-
     buffer = Buffer(size=1000, n_agents=n_agents, global_state_dim=global_state_dim,
                     observation_dim=observation_dim)
     buffer.print_attributes()
@@ -31,11 +25,14 @@ def run_episode(env, agent, mode):
     
     while not episode_ended:
         env.render()
+        # pause until key press
+        # input("Press Enter to continue...")
+
         step_counter += 1
         # action = agent.choose_action(observation)
         action = env.action_space.sample()  # Random action for placeholder
         new_observation, reward, terminated, truncated, info = env.step(action)
-        global_state = get_full_state(env)
+        global_state = get_full_state(env, flatten=True)
         
         buffer.store_transitions(
             global_states=global_state,
@@ -47,7 +44,9 @@ def run_episode(env, agent, mode):
         )
         # buffer.print_buffer()
         batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
-        print("actions of Sampled batch for agent 0:", batch[2] if batch is not None else "No batch sampled")
+
+        # to check if batching is working:
+        # print("actions of Sampled batch for agent 0:", batch[2] if batch is not None else "No batch sampled")
 
         ep_return.append(reward)
         
