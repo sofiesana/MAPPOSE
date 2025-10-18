@@ -11,7 +11,6 @@ class Buffer:
         self.hidden_state_dim = hidden_state_dim
 
         self.current_index = 0
-        self.current_size = 0
 
         self.global_states = np.zeros((size, n_agents, *global_state_dim))
         self.observations = np.zeros((size, n_agents, observation_dim))
@@ -21,6 +20,8 @@ class Buffer:
         self.dones = np.zeros((size, n_agents), dtype=bool)
         self.hidden_states = np.zeros((size, n_agents, hidden_state_dim))
 
+        self.buffer_filled = False
+
     def print_attributes(self):
         print("############## Buffer Attributes:")
         print(f"Buffer size: {self.size}")
@@ -28,8 +29,7 @@ class Buffer:
         print(f"Global state dimension: {self.global_state_dim}")
         print(f"Observation dimension: {self.observation_dim}")
         print(f"Current index: {self.current_index}")
-        print(f"Current size: {self.current_size}")
-    
+        
     def store_transitions(self, global_states, observations, actions, rewards, next_observations, dones, hidden_states):
         self.global_states[self.current_index] = global_states
         self.observations[self.current_index] = observations
@@ -39,14 +39,19 @@ class Buffer:
         self.dones[self.current_index] = dones
         self.hidden_states[self.current_index] = hidden_states
 
-        self.current_index = (self.current_index + 1) % self.size
-        if self.current_size < self.size:
-            self.current_size += 1
+        if not self.buffer_filled:
+            if self.current_index == self.size - 1:
+                self.buffer_filled = True
+                self.current_index = 0
+            else:
+                self.current_index = (self.current_index + 1) % self.size
+        else:
+            self.current_index = (self.current_index + 1) % self.size
 
     def increase_index(self):
         self.current_index = (self.current_index + 1) % self.size
-        if self.current_size < self.size:
-            self.current_size += 1
+        if self.current_index < self.size:
+            self.current_index += 1
 
     def store_single_agent_transition(self, agent_index, global_state, observation, action, reward, next_observation, done, hidden_state):
         self.global_states[self.current_index, agent_index] = global_state
@@ -65,19 +70,21 @@ class Buffer:
         print("############## Buffer Contents:")
         for ag in range(self.n_agents):
             print(f"--- Agent {ag} ---")
-            for i in range(self.current_size):
+            for i in range(self.current_index):
                 print(f"Index {i}: GS: {self.global_states[i, ag]}, Obs: {self.observations[i, ag]}, "
                       f"Act: {self.actions[i, ag]}, Rew: {self.rewards[i, ag]}, "
                       f"Next Obs: {self.next_observations[i, ag]}, Done: {self.dones[i, ag]}, "
                       f"Hidden State: {self.hidden_states[i, ag]}")
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
+        if window_size > self.size:
+            raise ValueError("Window size cannot be larger than buffer size.")
         #  batch of sequential samples for rnn
-        if self.current_size < window_size:
-            print("Not enough samples in buffer to sample the requested batch size.")
+        if self.current_index < window_size:
+            print("Not enough samples in buffer yet to sample the requested batch size.")
             return None # this may need to be handled differently
         
-        max_index = self.current_size
+        max_index = self.current_index
         # get batch of length window_size
         batch_indices = np.zeros((batch_size, window_size), dtype=int)
         print("batch size:", batch_size

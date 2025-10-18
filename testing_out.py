@@ -15,7 +15,7 @@ def run_episode(env, agent, mode):
     n_agents = len(env.observation_space)
     observation_dim = env.observation_space[0].shape[0]
     hidden_state_dim = 64  # example hidden state dimension for RNN
-    buffer = Buffer(size=1000, n_agents=n_agents, global_state_dim=global_state_dim,
+    buffer = Buffer(size=50, n_agents=n_agents, global_state_dim=global_state_dim,
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     buffer.print_attributes()
     
@@ -45,8 +45,8 @@ def run_episode(env, agent, mode):
             next_observations=new_observation,
             dones=terminated,
             hidden_states=dummy_hidden_state
-
         )
+        buffer.print_attributes()
         # buffer.print_buffer()
         batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
 
