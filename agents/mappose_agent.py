@@ -67,34 +67,31 @@ class MAPPOSE(Agent):
         """
 
         self.actor_prev_models_list[agent_idx].load_state_dict(self.actor_models_list[agent_idx].state_dict())
-
-        # for prev_actor, new_actor in zip(self.actor_prev_models_list, self.actor_models_list):
-        #     prev_actor.load_state_dict(new_actor.state_dict())
    
-    def choose_action(self, obs_list):
-        """Choose actions for all agents based on their observations
-        Args:
-            - obs_list: list of observations for each agent
-        Returns:
-            - action_list: list of actions for each agent
-            - log_prob_list: list of log probabilities of the chosen actions
-        """
+    # def choose_action(self, obs_):
+    #     """Choose actions for all agents based on their observations
+    #     Args:
+    #         - obs_list: list of observations for each agent
+    #     Returns:
+    #         - action_list: list of actions for each agent
+    #         - log_prob_list: list of log probabilities of the chosen actions
+    #     """
 
-        action_list = []
-        log_prob_list = []
+    #     action_list = []
+    #     log_prob_list = []
 
-        for actor, obs in zip(self.actor_models_list, obs_list):
-            logits = actor(obs)
+    #     for actor, obs in zip(self.actor_models_list, obs_list):
+    #         logits = actor(obs)
 
-            distribution = torch.distributions.Categorical(logits=logits)
+    #         distribution = torch.distributions.Categorical(logits=logits)
 
-            action = distribution.sample()
-            log_prob = distribution.log_prob(action)
+    #         action = distribution.sample()
+    #         log_prob = distribution.log_prob(action)
 
-            action_list.append(action)
-            log_prob_list.append(log_prob)
+    #         action_list.append(action)
+    #         log_prob_list.append(log_prob)
 
-        return action_list, log_prob_list
+    #     return action_list, log_prob_list
     
     def choose_random_action(self):
         """Choose random action for all agents
@@ -106,20 +103,20 @@ class MAPPOSE(Agent):
         
         return action_list
     
-    def get_prob_action_given_obs(self, action_list, obs_list, policy, get_entropy=False):
+    def get_prob_action_given_obs(self, action_seq, obs_seq, policy, h_init=None, get_entropy=False):
         """Get the probabilty of taking action in action_list given being obs using given policy
         Args:
-            - obs_list: list of observations
-            - action_list: list of actions
+            - obs_seq: list of observations
+            - action_seq: list of actions
             - policy: actor network to use as policy
         Return:
             - prob_list: list of probabilities of selecting the given actions
         """
 
-        logits = policy(obs_list)
+        logits, _ = policy(obs_seq, h_init)
         distribution = torch.distributions.Categorical(logits=logits)
 
-        log_probs_list = distribution.log_prob(action_list)
+        log_probs_list = distribution.log_prob(action_seq)
 
         if get_entropy:
             entropy = distribution.entropy()
@@ -136,7 +133,7 @@ class MAPPOSE(Agent):
         ### Update Actor Networks ###
         for n in range(self.num_agents):
             ### TODO Get batch of only agent n's trajectories
-            states, next_states, obs_list, actions_list, rewards, dones = self.sample_buffer(self.batch_size) # Get batch of agent n's trajectories
+            states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n = self.sample_buffer(self.batch_size) # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
         
             obs_list = torch.tensor(obs_list, dtype=torch.float32).to(self.device)
             actions_list = torch.tensor(actions_list, dtype=torch.float32).to(self.device)
@@ -147,7 +144,8 @@ class MAPPOSE(Agent):
 
             ## Get Individual Loss ##
             current_log_probs, entropies = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_models_list[n], get_entropy=True)
-            old_log_probs = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_prev_models_list[n])
+            with torch.no_grad():
+                old_log_probs = self.get_prob_action_given_obs(actions_list, obs_list, self.actor_prev_models_list[n])
             policy_ratio = torch.exp(current_log_probs - old_log_probs)
             individual_clipped_obj = min(policy_ratio * advantages, torch.clamp(policy_ratio, 1.0 - self.epsilon, 1.0 + self.epsilon) * advantages)
             individual_loss = -(individual_clipped_obj + entropies)
