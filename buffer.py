@@ -3,12 +3,13 @@ import numpy as np
 
 
 class Buffer:
-    def __init__(self, size, n_agents, global_state_dim, observation_dim):
+    def __init__(self, size, n_agents, global_state_dim, observation_dim, hidden_state_dim=None):
         self.size = size
         self.n_agents = n_agents
         self.global_state_dim = global_state_dim
         self.observation_dim = observation_dim
-        
+        self.hidden_state_dim = hidden_state_dim
+
         self.current_index = 0
         self.current_size = 0
 
@@ -18,6 +19,7 @@ class Buffer:
         self.rewards = np.zeros((size, n_agents))
         self.next_observations = np.zeros((size, n_agents, observation_dim))
         self.dones = np.zeros((size, n_agents), dtype=bool)
+        self.hidden_states = np.zeros((size, n_agents, hidden_state_dim))
 
     def print_attributes(self):
         print("############## Buffer Attributes:")
@@ -28,18 +30,36 @@ class Buffer:
         print(f"Current index: {self.current_index}")
         print(f"Current size: {self.current_size}")
     
-    def store_transitions(self, global_states, observations, actions, rewards, next_observations, dones):
+    def store_transitions(self, global_states, observations, actions, rewards, next_observations, dones, hidden_states):
         self.global_states[self.current_index] = global_states
         self.observations[self.current_index] = observations
         self.actions[self.current_index] = actions
         self.rewards[self.current_index] = rewards
         self.next_observations[self.current_index] = next_observations
         self.dones[self.current_index] = dones
+        self.hidden_states[self.current_index] = hidden_states
 
         self.current_index = (self.current_index + 1) % self.size
         if self.current_size < self.size:
             self.current_size += 1
-            
+
+    def increase_index(self):
+        self.current_index = (self.current_index + 1) % self.size
+        if self.current_size < self.size:
+            self.current_size += 1
+
+    def store_single_agent_transition(self, agent_index, global_state, observation, action, reward, next_observation, done, hidden_state):
+        self.global_states[self.current_index, agent_index] = global_state
+        self.observations[self.current_index, agent_index] = observation
+        self.actions[self.current_index, agent_index] = action
+        self.rewards[self.current_index, agent_index] = reward
+        self.next_observations[self.current_index, agent_index] = next_observation
+        self.dones[self.current_index, agent_index] = done
+        self.hidden_states[self.current_index, agent_index] = hidden_state
+
+        print("CAUTION: Storing single agent transition does NOT increment current_index.")
+        print("please call increase_index() method after storing all agents' transitions for the current time step.")
+
     def print_buffer(self):
         # pprint buffer contents per agent, untruncated 
         print("############## Buffer Contents:")
@@ -48,9 +68,9 @@ class Buffer:
             for i in range(self.current_size):
                 print(f"Index {i}: GS: {self.global_states[i, ag]}, Obs: {self.observations[i, ag]}, "
                       f"Act: {self.actions[i, ag]}, Rew: {self.rewards[i, ag]}, "
-                      f"Next Obs: {self.next_observations[i, ag]}, Done: {self.dones[i, ag]}")
-                
-    
+                      f"Next Obs: {self.next_observations[i, ag]}, Done: {self.dones[i, ag]}, "
+                      f"Hidden State: {self.hidden_states[i, ag]}")
+
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
         #  batch of sequential samples for rnn
         if self.current_size < window_size:
@@ -74,7 +94,5 @@ class Buffer:
                 self.actions[batch_indices, agent_index],
                 self.rewards[batch_indices, agent_index],
                 self.next_observations[batch_indices, agent_index],
-                self.dones[batch_indices, agent_index])
-
-        # return (self.global_states[batch_indices, agent_index], self.observations[batch_indices, agent_index], self.actions[batch_indices, agent_index],
-        #         self.rewards[batch_indices, agent_index], self.next_observations[batch_indices, agent_index], self.dones[batch_indices, agent_index])
+                self.dones[batch_indices, agent_index], 
+                self.hidden_states[batch_indices, agent_index])

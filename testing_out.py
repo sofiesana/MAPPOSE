@@ -14,14 +14,17 @@ def run_episode(env, agent, mode):
     global_state_dim = get_full_state(env, flatten=True).shape
     n_agents = len(env.observation_space)
     observation_dim = env.observation_space[0].shape[0]
+    hidden_state_dim = 64  # example hidden state dimension for RNN
     buffer = Buffer(size=1000, n_agents=n_agents, global_state_dim=global_state_dim,
-                    observation_dim=observation_dim)
+                    observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     buffer.print_attributes()
     
     observation, _ = env.reset()
     episode_ended = False
     ep_return = []
     step_counter = 0
+
+    dummy_hidden_state = np.zeros((n_agents, hidden_state_dim))  # example initial hidden state 
     
     while not episode_ended:
         env.render()
@@ -40,13 +43,38 @@ def run_episode(env, agent, mode):
             actions=action,
             rewards=reward,
             next_observations=new_observation,
-            dones=terminated
+            dones=terminated,
+            hidden_states=dummy_hidden_state
+
         )
         # buffer.print_buffer()
         batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
 
+        # you can also store single agent transition if needed
+        # dummy_single_agent_transition = {
+        #     "global_state": global_state,
+        #     "observation": observation[0],
+        #     "action": action[0],
+        #     "reward": reward[0],
+        #     "next_observation": new_observation[0],
+        #     "done": terminated,
+        #     "hidden_state": dummy_hidden_state[0]
+        # }
+
+        # buffer.store_single_agent_transition(
+        #     agent_index=0,
+        #     global_state=dummy_single_agent_transition["global_state"],
+        #     observation=dummy_single_agent_transition["observation"],
+        #     action=dummy_single_agent_transition["action"],
+        #     reward=dummy_single_agent_transition["reward"],
+        #     next_observation=dummy_single_agent_transition["next_observation"],
+        #     done=dummy_single_agent_transition["done"],
+        #     hidden_state=dummy_single_agent_transition["hidden_state"]
+        # )
+
         # to check if batching is working:
         # print("actions of Sampled batch for agent 0:", batch[2] if batch is not None else "No batch sampled")
+        # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
 
         ep_return.append(reward)
         
