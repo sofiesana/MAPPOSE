@@ -101,20 +101,21 @@ def get_full_state(env, flatten=True):
     all_shelf_info = s[0] + s[1]
     goals = get_true_coords(s[2])
     all_agent_info = s[3]
-    final_as_matrices = [all_shelf_info, all_agent_info, goals]
-    
+    # final_as_matrices is not used, can be removed for efficiency
+
     if flatten:
-        # returns a flattened array of: the shelf info grid, the agent info grid, the goal x,y coords
-        final_global_state = []
-        final_global_state.extend(all_shelf_info.flatten())
-        final_global_state.extend(all_agent_info.flatten())
-        for goal in goals:
-            final_global_state.extend(goal)
-        flat = np.array(final_global_state)
+        # Efficiently concatenate flattened arrays using numpy
+        flat = np.concatenate([
+            all_shelf_info.ravel(),
+            all_agent_info.ravel(),
+            goals.ravel()
+        ])
+        print(flat)
         return flat
     else:
-        # returns as a list of matrices: [shelf info grid including goal locations, agent info grid]
-        all_shelf_info += 3 * s[2]  # shelves + goals
-        final_global_state = np.array([all_shelf_info, all_agent_info])
-        print("Final global state shape:", final_global_state)
+        # Efficiently add shelf info and goals, then stack as numpy array
+        all_shelf_info = all_shelf_info + 3 * s[2]  # shelves + goals
+        final_global_state = np.stack([all_shelf_info, all_agent_info])
+        print("Final global state shape:", final_global_state.shape)
+        print("Final global state array:\n", final_global_state)
         return final_global_state
