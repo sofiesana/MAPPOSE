@@ -11,7 +11,8 @@ ITERS = 1
 def run_episode(env, agent, mode):
     """Run a single episode and return the episode return"""
 
-    global_state_dim = len(get_full_state(env))
+    global_state_dim = get_full_state(env).shape
+    print("Global State Dimension:", global_state_dim)
     
     n_agents = len(env.observation_space)
     print("Number of agents:", n_agents)
@@ -45,8 +46,8 @@ def run_episode(env, agent, mode):
             dones=terminated
         )
         # buffer.print_buffer()
-        batch = buffer.sample_agent_batch(agent_index=0, batch_size=10)
-        # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
+        batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
+        print("actions of Sampled batch for agent 0:", batch[2] if batch is not None else "No batch sampled")
 
         ep_return.append(reward)
         
@@ -105,6 +106,7 @@ def run_environment(args):
         # Testing phase
         # print(f"Testing {agent.agentName} agent...")
         # run_episodes(env, agent, N_TEST_EPISODES, mode='test')
+    env.close()
 
 
 if __name__ == "__main__":

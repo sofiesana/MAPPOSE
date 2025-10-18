@@ -12,7 +12,7 @@ class Buffer:
         self.current_index = 0
         self.current_size = 0
 
-        self.global_states = np.zeros((size, n_agents, global_state_dim))
+        self.global_states = np.zeros((size, n_agents, *global_state_dim))
         self.observations = np.zeros((size, n_agents, observation_dim))
         self.actions = np.zeros((size, n_agents))
         self.rewards = np.zeros((size, n_agents))
@@ -51,14 +51,30 @@ class Buffer:
                       f"Next Obs: {self.next_observations[i, ag]}, Done: {self.dones[i, ag]}")
                 
     
-    def sample_agent_batch(self, agent_index, batch_size):
-        #  get batch of sequential samples for rnn
-        if self.current_size < batch_size:
+    def sample_agent_batch(self, agent_index, batch_size, window_size=10):
+        #  batch of sequential samples for rnn
+        if self.current_size < window_size:
             print("Not enough samples in buffer to sample the requested batch size.")
-            return None
+            return None # this may need to be handled differently
+        
         max_index = self.current_size
-        start_index = np.random.randint(0, max_index - batch_size + 1)
-        indices = np.arange(start_index, start_index + batch_size)
-        print(f"Sampling agent {agent_index} batch at indices: {indices}")
-        return (self.global_states[indices, agent_index], self.observations[indices, agent_index], self.actions[indices, agent_index],
-                self.rewards[indices, agent_index], self.next_observations[indices, agent_index], self.dones[indices, agent_index])
+        # get batch of length window_size
+        batch_indices = np.zeros((batch_size, window_size), dtype=int)
+        print("batch size:", batch_size
+              , "window size:", window_size, "global state dim:", self.global_state_dim
+              , "observation dim:", self.observation_dim)
+        # batch = np.zeros((batch_size, window_size,
+        #                      *self.global_state_dim, self.observation_dim, 1, 1, self.observation_dim, 1))
+        for b in range(batch_size):
+            start_index = np.random.randint(0, max_index - window_size + 1)
+            batch_indices[b] = np.arange(start_index, start_index + window_size)
+
+        return (self.global_states[batch_indices, agent_index],
+                self.observations[batch_indices, agent_index],
+                self.actions[batch_indices, agent_index],
+                self.rewards[batch_indices, agent_index],
+                self.next_observations[batch_indices, agent_index],
+                self.dones[batch_indices, agent_index])
+
+        # return (self.global_states[batch_indices, agent_index], self.observations[batch_indices, agent_index], self.actions[batch_indices, agent_index],
+        #         self.rewards[batch_indices, agent_index], self.next_observations[batch_indices, agent_index], self.dones[batch_indices, agent_index])
