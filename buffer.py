@@ -1,3 +1,4 @@
+from tracemalloc import start
 import numpy as np
 
 
@@ -11,6 +12,7 @@ class Buffer:
         self.hidden_state_dim = hidden_state_dim
 
         self.current_index = 0
+        self.new_episode_indices = [0]
 
         self.global_states = np.zeros((size, n_agents, *global_state_dim))
         self.observations = np.zeros((size, n_agents, observation_dim))
@@ -39,6 +41,9 @@ class Buffer:
         self.dones[self.current_index] = dones
         self.hidden_states[self.current_index] = hidden_states
 
+        if dones:
+            self.new_episode_indices.append(self.current_index)
+
         if not self.buffer_filled:
             if self.current_index == self.size - 1:
                 self.buffer_filled = True
@@ -47,6 +52,10 @@ class Buffer:
                 self.current_index = (self.current_index + 1) % self.size
         else:
             self.current_index = (self.current_index + 1) % self.size
+
+        if self.current_index in self.new_episode_indices:
+            # new episode has been overwritten, remove from list
+            self.new_episode_indices.remove(self.current_index)
 
     def increase_index(self):
         self.current_index = (self.current_index + 1) % self.size
@@ -75,12 +84,40 @@ class Buffer:
                       f"Act: {self.actions[i, ag]}, Rew: {self.rewards[i, ag]}, "
                       f"Next Obs: {self.next_observations[i, ag]}, Done: {self.dones[i, ag]}, "
                       f"Hidden State: {self.hidden_states[i, ag]}")
+                
+    def get_valid_start_indices_for_window(self, window_size):
+        # Find all valid start indices (not crossing episode boundaries)
+        if self.buffer_filled:
+            max_index = self.size
+        else:
+            max_index = self.current_index
+
+        valid_starts = []
+        for start in range(max_index):
+            # Build window indices with wrapping
+            window = [(start + i) % self.size for i in range(window_size)]
+            print(window)
+            if not self.buffer_filled and (start + window_size > self.current_index):
+                print("window:", window, "skipped because it exceeds current_index")
+                continue
+            # if self.buffer_filled and (start + window_size > self.size):
+            #     print("window:", window, "skipped because it exceeds buffer size")
+            #     continue
+            # Check for episode boundary crossing
+            if any(idx in self.new_episode_indices[1:] for idx in window[1:]):
+                print("window:", window, "skipped because it crosses episode boundary")
+                continue
+            valid_starts.append(start)
+        if not valid_starts:
+            raise ValueError("No valid sequence found")
+        print("Valid start indices for window sampling:", valid_starts)
+        return valid_starts
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
         if window_size > self.size:
             raise ValueError("Window size cannot be larger than buffer size.")
-        #  batch of sequential samples for rnn
-        if self.current_index < window_size:
+        
+        if not self.buffer_filled and self.current_index < window_size:
             print("Not enough samples in buffer yet to sample the requested batch size.")
             return None # this may need to be handled differently
         
@@ -92,9 +129,12 @@ class Buffer:
               , "observation dim:", self.observation_dim)
         # batch = np.zeros((batch_size, window_size,
         #                      *self.global_state_dim, self.observation_dim, 1, 1, self.observation_dim, 1))
+        valid_starts = self.get_valid_start_indices_for_window(window_size)
         for b in range(batch_size):
-            start_index = np.random.randint(0, max_index - window_size + 1)
-            batch_indices[b] = np.arange(start_index, start_index + window_size)
+            start_index = np.random.choice(valid_starts)
+            window = [(start_index + i) % self.size for i in range(window_size)]
+            batch_indices[b] = window
+        print("Sampled batch indices for agent", agent_index, ":\n", batch_indices)
 
         return (self.global_states[batch_indices, agent_index],
                 self.observations[batch_indices, agent_index],

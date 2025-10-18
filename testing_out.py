@@ -15,7 +15,7 @@ def run_episode(env, agent, mode):
     n_agents = len(env.observation_space)
     observation_dim = env.observation_space[0].shape[0]
     hidden_state_dim = 64  # example hidden state dimension for RNN
-    buffer = Buffer(size=50, n_agents=n_agents, global_state_dim=global_state_dim,
+    buffer = Buffer(10, n_agents=n_agents, global_state_dim=global_state_dim,
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     buffer.print_attributes()
     
@@ -29,7 +29,7 @@ def run_episode(env, agent, mode):
     while not episode_ended:
         env.render()
         # pause until key press
-        # input("Press Enter to continue...")
+        input("Press Enter to continue...")
 
         step_counter += 1
         # action = agent.choose_action(observation)
@@ -73,7 +73,7 @@ def run_episode(env, agent, mode):
         # )
 
         # to check if batching is working:
-        # print("actions of Sampled batch for agent 0:", batch[2] if batch is not None else "No batch sampled")
+        # print("actions of Sampled batch for agent 0:", batch[5] if batch is not None else "No batch sampled")
         # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
 
         ep_return.append(reward)
