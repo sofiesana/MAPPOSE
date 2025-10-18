@@ -100,10 +100,6 @@ class Buffer:
             if not self.buffer_filled and (start + window_size > self.current_index):
                 print("window:", window, "skipped because it exceeds current_index")
                 continue
-            # if self.buffer_filled and (start + window_size > self.size):
-            #     print("window:", window, "skipped because it exceeds buffer size")
-            #     continue
-            # Check for episode boundary crossing
             if any(idx in self.new_episode_indices[1:] for idx in window[1:]):
                 print("window:", window, "skipped because it crosses episode boundary")
                 continue
@@ -121,14 +117,13 @@ class Buffer:
             print("Not enough samples in buffer yet to sample the requested batch size.")
             return None # this may need to be handled differently
         
-        max_index = self.current_index
+        
         # get batch of length window_size
         batch_indices = np.zeros((batch_size, window_size), dtype=int)
         print("batch size:", batch_size
               , "window size:", window_size, "global state dim:", self.global_state_dim
               , "observation dim:", self.observation_dim)
-        # batch = np.zeros((batch_size, window_size,
-        #                      *self.global_state_dim, self.observation_dim, 1, 1, self.observation_dim, 1))
+
         valid_starts = self.get_valid_start_indices_for_window(window_size)
         for b in range(batch_size):
             start_index = np.random.choice(valid_starts)
