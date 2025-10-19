@@ -96,7 +96,7 @@ class Buffer:
         for start in range(max_index):
             # Build window indices with wrapping
             window = [(start + i) % self.size for i in range(window_size)]
-            print(window)
+            # print(window)
             if not self.buffer_filled and (start + window_size > self.current_index):
                 print("window:", window, "skipped because it exceeds current_index")
                 continue
@@ -106,12 +106,12 @@ class Buffer:
             valid_starts.append(start)
         if not valid_starts:
             raise ValueError("No valid sequence found")
-        print("Valid start indices for window sampling:", valid_starts)
+        # print("Valid start indices for window sampling:", valid_starts)
         return valid_starts
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
         if window_size > self.size:
-            raise ValueError("Window size cannot be larger than buffer size.")
+            raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
         
         if not self.buffer_filled and self.current_index < window_size:
             print("Not enough samples in buffer yet to sample the requested batch size.")
@@ -129,7 +129,7 @@ class Buffer:
             start_index = np.random.choice(valid_starts)
             window = [(start_index + i) % self.size for i in range(window_size)]
             batch_indices[b] = window
-        print("Sampled batch indices for agent", agent_index, ":\n", batch_indices)
+        # print("Sampled batch indices for agent", agent_index, ":\n", batch_indices)
 
         return (self.global_states[batch_indices, agent_index],
                 self.observations[batch_indices, agent_index],

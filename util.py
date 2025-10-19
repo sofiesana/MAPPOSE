@@ -110,7 +110,7 @@ def get_full_state(env, flatten=True):
             all_agent_info.ravel(),
             goals.ravel()
         ])
-        print(flat)
+        # print(flat)
         return flat
     else:
         # Efficiently add shelf info and goals, then stack as numpy array

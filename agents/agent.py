@@ -10,8 +10,6 @@ import torch
 class Agent(ABC):
     def __init__(
         self,
-        memory_size: int,
-        state_dimensions: Tuple[int, int, int],
         n_actions: int,
         learning_rate = 0.0001,
         discount_factor = 0.99,
@@ -30,68 +28,67 @@ class Agent(ABC):
         @param n_actions (int): Number of actions the agent can take
         """
 
-        self.memory_size = memory_size
         self.discount_factor = discount_factor
         self.learning_rate = learning_rate
         self.n_actions = n_actions
-        self.state_buffer = np.zeros((self.memory_size, state_dimensions), dtype=np.float32)
-        self.new_state_buffer = np.zeros((self.memory_size, state_dimensions), dtype=np.float32)
-        self.action_buffer = np.zeros((self.memory_size, n_actions), dtype=np.float32)
-        self.reward_buffer = np.zeros(self.memory_size, dtype=np.float32)
-        self.terminal_buffer = np.zeros(self.memory_size, dtype=bool)
-        self.transition_number = 0
+        # self.state_buffer = np.zeros((self.memory_size, state_dimensions), dtype=np.float32)
+        # self.new_state_buffer = np.zeros((self.memory_size, state_dimensions), dtype=np.float32)
+        # self.action_buffer = np.zeros((self.memory_size, n_actions), dtype=np.float32)
+        # self.reward_buffer = np.zeros(self.memory_size, dtype=np.float32)
+        # self.terminal_buffer = np.zeros(self.memory_size, dtype=bool)
+        # self.transition_number = 0
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu") # For mac
 
-    def store_transition(
-        self,
-        state: np.ndarray,
-        action: int, # Is this always an int?
-        reward: float,
-        new_state: np.ndarray,
-        done: bool
-    ) -> None:
-        """!
-        Stores the state transition for later memory replay.
-        Make sure that the memory buffer does not exceed its maximum size.
+    # def store_transition(
+    #     self,
+    #     state: np.ndarray,
+    #     action: int, # Is this always an int?
+    #     reward: float,
+    #     new_state: np.ndarray,
+    #     done: bool
+    # ) -> None:
+    #     """!
+    #     Stores the state transition for later memory replay.
+    #     Make sure that the memory buffer does not exceed its maximum size.
 
-        Hint: after reaching the limit of the memory buffer, maybe you should start overwriting
-        the oldest transitions?
+    #     Hint: after reaching the limit of the memory buffer, maybe you should start overwriting
+    #     the oldest transitions?
 
-        @param state        (list): Vector describing current state
-        @param action       (int): Action taken
-        @param reward       (float): Received reward
-        @param new_state    (list): Newly observed state.
-        """
+    #     @param state        (list): Vector describing current state
+    #     @param action       (int): Action taken
+    #     @param reward       (float): Received reward
+    #     @param new_state    (list): Newly observed state.
+    #     """
 
-        transition_idx = self.transition_number % self.memory_size # Restart idx if at max size
+    #     transition_idx = self.transition_number % self.memory_size # Restart idx if at max size
 
-        self.state_buffer[transition_idx] = state
-        self.new_state_buffer[transition_idx] = new_state
-        self.action_buffer[transition_idx] = action
-        self.reward_buffer[transition_idx] = reward
-        self.terminal_buffer[transition_idx] = done
-        self.transition_number += 1
+    #     self.state_buffer[transition_idx] = state
+    #     self.new_state_buffer[transition_idx] = new_state
+    #     self.action_buffer[transition_idx] = action
+    #     self.reward_buffer[transition_idx] = reward
+    #     self.terminal_buffer[transition_idx] = done
+    #     self.transition_number += 1
 
-    def sample_buffer(
-        self,
-        batch_size: int
-    ):
-        rand_indices = np.random.randint(0, self.get_current_buffer_size(), size=batch_size)
+    # def sample_buffer(
+    #     self,
+    #     batch_size: int
+    # ):
+    #     rand_indices = np.random.randint(0, self.get_current_buffer_size(), size=batch_size)
 
-        sampled_states = self.state_buffer[rand_indices]
-        sampled_next_states = self.new_state_buffer[rand_indices]
-        sampled_actions = self.action_buffer[rand_indices]
-        sampeld_rewards = self.reward_buffer[rand_indices]
-        sampled_dones = self.terminal_buffer[rand_indices]
+    #     sampled_states = self.state_buffer[rand_indices]
+    #     sampled_next_states = self.new_state_buffer[rand_indices]
+    #     sampled_actions = self.action_buffer[rand_indices]
+    #     sampeld_rewards = self.reward_buffer[rand_indices]
+    #     sampled_dones = self.terminal_buffer[rand_indices]
 
-        return sampled_states, sampled_next_states, sampled_actions, sampeld_rewards, sampled_dones
+    #     return sampled_states, sampled_next_states, sampled_actions, sampeld_rewards, sampled_dones
 
-    def get_current_buffer_size(
-        self
-    ) -> int: 
+    # def get_current_buffer_size(
+    #     self
+    # ) -> int: 
 
-        return min(self.transition_number, self.memory_size)
+    #     return min(self.transition_number, self.memory_size)
     
     def state_numpy_to_tensor(self, states):
         states = np.array(states)
