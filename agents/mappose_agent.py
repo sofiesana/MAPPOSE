@@ -144,8 +144,6 @@ class MAPPOSE(Agent):
             - buffer: sequential buffer for all agents
         """
 
-        torch.autograd.set_detect_anomaly(True)
-
         ### Update Actor Networks ###
         for n in range(self.num_agents):
             print("Updating agent", n)
@@ -179,7 +177,6 @@ class MAPPOSE(Agent):
             for not_n in range(self.num_agents):
                 if not_n != n: # For each other agent
                     print("Updating Shared Experience of Agent: ", not_n)
-                    ### TODO Get batch of only agent not_n's trajectories
                     states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, _, dones_seq_not_n, hidden_states_seq_not_n = buffer.sample_agent_batch(not_n, self.batch_size, window_size=self.seq_size) # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
 
                     states = torch.tensor(states, dtype=torch.float32).to(self.device)
@@ -212,6 +209,7 @@ class MAPPOSE(Agent):
             self.update_prev_actor_model(n) # Update prev network to current before optimizing current
 
             # Optimize policy network
+            # POTENTIAL ISSUE!! - Updating each agent one at a time could cause issues since changes prob in loss
             self.optimizers_actor_list[n].zero_grad()
             total_actor_loss.backward()
             self.optimizers_actor_list[n].step()
