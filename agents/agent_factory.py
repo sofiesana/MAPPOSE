@@ -1,6 +1,8 @@
 from agents.agent import Agent
-from agents.soft_actor_critic_agent import SAC
 from agents.random_agent import Random
+from agents.mappose_agent import MAPPOSE
+
+from util import get_full_state
 
 class AgentFactory:
     """
@@ -9,25 +11,24 @@ class AgentFactory:
     """
 
     @staticmethod
-    def create_agent(agent_type: str, env, batch_size: int, buffer_size: int, lr=0.0001, alpha_lr=0.001, discount_factor=0.99, action_scale=1) -> Agent:
+    def create_agent(agent_type: str, env, batch_size: int, lr=0.0001, discount_factor=0.99) -> Agent:
         """
         Factory method for Agent creation.
         :param env: gymnasium environment.
         :param agent_type: a string key corresponding to the agent.
         :return: an object of type Agent.
         """
-        obs_space = env.observation_space
-        state_dims = obs_space.shape[0]
-
-        action_space = env.action_space
-        print(f"Observation space: {obs_space}, Action space: {action_space}")
-        num_actions = action_space.shape[0]
-        print(f"Creating agent of type {agent_type} with state dimensions {state_dims} and number of actions {num_actions}")
+        state_dim = get_full_state(env, flatten=True).shape[0]
+        obs_dim = env.observation_space[0].shape[0]
+        num_agents = len(env.observation_space)
+        num_actions = env.action_space[0].n
+        
+        print(f"Creating agent of type {agent_type} with observation dim: {obs_dim}, state dimensions {state_dim} and number of actions {num_actions}")
 
         # Best hyperparameters found using grid search for each model set below
-        if agent_type == "SAC":
-            return SAC(memory_size=buffer_size, state_dimensions=state_dims, n_actions=num_actions, batch_size=batch_size, lr=lr, alpha_lr=alpha_lr, discount_factor=discount_factor, action_scale_factor=action_scale)
-        elif agent_type == "Random":
-            return Random(memory_size=buffer_size, state_dimensions=state_dims, n_actions=num_actions, action_scale = action_scale) # Given these variables but not used
+        if agent_type == "MAPPOSE":
+            return MAPPOSE(state_dim=state_dim, obs_dim=obs_dim, n_actions=num_actions, num_agents=num_agents, batch_size=batch_size, lr=lr, discount_factor=discount_factor)
+        # elif agent_type == "Random":
+        #     return Random(memory_size=buffer_size, state_dimensions=state_dims, n_actions=num_actions, action_scale = action_scale) # Given these variables but not used
 
         raise ValueError("Invalid agent type: ", agent_type)
