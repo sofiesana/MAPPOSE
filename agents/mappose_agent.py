@@ -206,6 +206,7 @@ class MAPPOSE(Agent):
             mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
             total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
 
+            # TODO need to only update the prev actor model after all training on buffer, and set old policy to be one that collected the data
             self.update_prev_actor_model(n) # Update prev network to current before optimizing current
 
             # Optimize policy network
