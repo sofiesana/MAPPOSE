@@ -40,15 +40,14 @@ def run_episode(env, agent, mode, buffer: Buffer):
     step_counter = 0
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
-    
     while not episode_ended:
         env.render()
         # pause until key press
         # input("Press Enter to continue...")
 
-        step_counter += 1
         action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
         # action = env.action_space.sample()  # Random action for placeholder
+        
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
         
@@ -92,11 +91,13 @@ def run_episode(env, agent, mode, buffer: Buffer):
         # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
 
         ep_return.append(reward)
+
             
         if terminated or truncated:
             episode_ended = True
             
         observation = new_observation
+        step_counter += 1
 
     if mode == 'train':
         print("Training step...")
