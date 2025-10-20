@@ -271,8 +271,6 @@ class MAPPOSE(Agent):
             advantages_n = torch.nn.utils.rnn.pad_sequence(advantages_n_list, batch_first=True, padding_value=0.0)
 
 
-            # advantages_n = self.compute_GAE_from_index(start_idxs_n, self.critic_model)  # shape [batch_size, seq_len]
-
             # Compute reward-to-go
             reward_to_go_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
 
@@ -297,7 +295,20 @@ class MAPPOSE(Agent):
                     states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n = self.convert_sample_to_tensor([states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n], dtype=torch.float32)
 
                     reward_to_go_not_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_not_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
-                    advantages_not_n = torch.ones((self.batch_size, self.seq_size)).to(self.device) 
+                    # advantages_not_n = torch.ones((self.batch_size, self.seq_size)).to(self.device) 
+
+                    advantages_not_n_list = []
+
+                    # Loop over batch of trajectories for agent not_n
+                    for start_idx in start_idxs_not_n:
+                        advantages_traj = self.compute_GAE_from_index(start_idx, self.critic_model)
+                        advantages_not_n_list.append(advantages_traj)
+
+                    # Stack/pad to get [batch_size, seq_len]
+                    advantages_not_n = torch.nn.utils.rnn.pad_sequence(advantages_not_n_list, batch_first=True, padding_value=0.0)
+
+
+
 
                     shared_clipped_obj, entropies = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, not_n)
                     current_log_probs_agent_n, entropies_agent_n = self.get_prob_action_given_obs(actions_seq_not_n, obs_seq_not_n, self.actor_models_list[n], get_entropy=True)
@@ -324,9 +335,6 @@ class MAPPOSE(Agent):
 
 
         ### Update Critic Network ###
-        batch_size, seq_len, state_dim = states.shape
-        states_flat = states.view(batch_size * seq_len, state_dim)
-        reward_to_go_flat = reward_to_go_not_n.view(batch_size * seq_len)
 
         values_seq, _ = self.critic_model(states)
         values_seq = values_seq.squeeze(-1)         
