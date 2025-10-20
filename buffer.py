@@ -12,7 +12,7 @@ class Buffer:
         self.hidden_state_dim = hidden_state_dim
 
         self.current_index = 0
-        self.new_episode_indices = [0]
+        self.new_episode_indices = []
 
         self.global_states = np.zeros((size, n_agents, *global_state_dim))
         self.observations = np.zeros((size, n_agents, observation_dim))
@@ -40,8 +40,9 @@ class Buffer:
         self.next_observations[self.current_index] = next_observations
         self.dones[self.current_index] = dones
         self.hidden_states[self.current_index] = hidden_states
-
+        print(dones)
         if dones:
+            print("Storing new episode index at:", self.current_index)
             self.new_episode_indices.append(self.current_index)
 
         if not self.buffer_filled:
@@ -93,14 +94,17 @@ class Buffer:
             max_index = self.current_index
 
         valid_starts = []
+        print(" terminal indices:", self.new_episode_indices)
         for start in range(max_index):
             # Build window indices with wrapping
             window = [(start + i) % self.size for i in range(window_size)]
+            print("Checking window:", window)
             # print(window)
             if not self.buffer_filled and (start + window_size > self.current_index):
                 print("window:", window, "skipped because it exceeds current_index")
                 continue
-            if any(idx in self.new_episode_indices[1:] for idx in window[1:]):
+            print(" checking if any of", window, "in", self.new_episode_indices)
+            if any(idx-1 in self.new_episode_indices for idx in window):
                 print("window:", window, "skipped because it crosses episode boundary")
                 continue
             valid_starts.append(start)
@@ -138,3 +142,37 @@ class Buffer:
                 self.next_observations[batch_indices, agent_index],
                 self.dones[batch_indices, agent_index], 
                 self.hidden_states[batch_indices, agent_index])
+    
+    def get_episode_state_and_rewards(self, episode, timestep):
+        """
+        Get sum of rewards for all agents, and the global state at a given timestep (and the previous timestep)
+        within a specified episode.
+        """
+
+
+        episode_start = self.new_episode_indices[episode]
+        episode_end = self.new_episode_indices[episode + 1]  # next episode start
+
+        episode_length = episode_end - episode_start
+        if timestep >= episode_length:
+            raise ValueError(f"Timestep {timestep} out of range for episode {episode} (max {episode_length - 1}).")
+
+        # --- Compute absolute buffer index ---
+        index = episode_start + timestep
+
+        # --- Get state at timestep t ---
+        state_t = self.global_states[index]
+
+        # --- Get previous state (if exists) ---
+        state_t_minus_1 = self.global_states[index - 1] if timestep > 0 else None
+
+        # --- Sum of rewards across all agents ---
+        sum_rewards = np.sum(self.rewards[index])
+
+
+        return sum_rewards, state_t, state_t_minus_1
+
+
+
+
+

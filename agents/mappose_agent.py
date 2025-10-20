@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import torch
 import torch.optim as optim
@@ -164,6 +168,36 @@ class MAPPOSE(Agent):
             returns[:, t] = running_return
 
         return returns
+    
+
+    def compute_GAE_advantages(self, rewards, values, dones, gamma=None, lamda=0.95):
+        """Compute Generalized Advantage Estimation (GAE) advantages - for each trajectory in the batch.
+        Args:
+            - rewards: Tensor of shape [batch_size, seq_len]
+            - values: Tensor of shape [batch_size, seq_len]
+            - dones: Tensor of shape [batch_size, seq_len]
+            - gamma: discount factor
+            - lamda: GAE lambda parameter
+        Returns:
+            - advantages: Tensor of GAE advantages
+        """
+
+        if gamma is None:
+            gamma = self.discount_factor
+
+        batch_size, seq_len = rewards.shape
+        advantages = torch.zeros_like(rewards).to(self.device)
+        last_advantage = torch.zeros(batch_size).to(self.device)
+
+        for t in reversed(range(seq_len)):
+            mask = 1.0 - dones[:, t]
+            last_advantage = last_advantage * mask
+            delta = rewards[:, t] + gamma * values[:, t + 1] * mask - values[:, t]
+            last_advantage = delta + gamma * lamda * last_advantage
+            advantages[:, t] = last_advantage
+
+        return advantages # shape [batch_size, seq_len]
+
 
 
     
@@ -197,6 +231,7 @@ class MAPPOSE(Agent):
             # TODO: Compute advantages using critic (GAE)
 
             # Compute reward-to-go
+            print(rewards_seq_n.shape, dones_seq_n.shape)
             reward_to_go = self.compute_rewards_to_go(rewards_seq_n, dones_seq_n)  # shape: [batch_size, seq_len]
 
             # Get state values from critic
@@ -259,10 +294,6 @@ class MAPPOSE(Agent):
 
 
         ### Update Critic Network ###
-        batch_size, seq_len, state_dim = states.shape
-        states_flat = states.view(batch_size * seq_len, state_dim)
-        reward_to_go_flat = reward_to_go.view(batch_size * seq_len)
-
         values_seq, _ = self.critic_model(states)
         values_seq = values_seq.squeeze(-1)         
         critic_loss = F.mse_loss(values_seq, reward_to_go)

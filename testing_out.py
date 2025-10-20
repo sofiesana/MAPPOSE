@@ -40,17 +40,22 @@ def run_episode(env, agent, mode, buffer: Buffer):
     step_counter = 0
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
-    
+    step = 0
     while not episode_ended:
         env.render()
         # pause until key press
-        # input("Press Enter to continue...")
+        input("Press Enter to continue...")
 
         step_counter += 1
         action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
         # action = env.action_space.sample()  # Random action for placeholder
+        
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
+
+        print(" step:", step)
+        if step == 10:
+            terminated = True  # force termination for testing
         
         buffer.store_transitions(
             global_states=global_state,
@@ -63,7 +68,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
         )
         # buffer.print_attributes()
         # buffer.print_buffer()
-        # batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
+        batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
+        step += 1
 
         # you can also store single agent transition if needed
         # dummy_single_agent_transition = {
@@ -92,6 +98,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
         # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
 
         ep_return.append(reward)
+
+        terminated = False
             
         if terminated or truncated:
             episode_ended = True
@@ -114,7 +122,7 @@ def run_episodes(env, agent, num_episodes, mode='train'):
     n_agents = len(env.observation_space)
     observation_dim = env.observation_space[0].shape[0]
     hidden_state_dim = 128  # example hidden state dimension for RNN
-    buffer = Buffer(size=200, n_agents=n_agents, global_state_dim=global_state_dim,
+    buffer = Buffer(size=20, n_agents=n_agents, global_state_dim=global_state_dim,
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     # buffer.print_attributes()
 
