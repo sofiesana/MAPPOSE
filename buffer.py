@@ -173,32 +173,27 @@ class Buffer:
                 self.hidden_states[batch_indices, agent_index],
                 start_idxs)
     
-    def get_episode_state_and_rewards(self, episode, timestep):
+    def get_timestep_state_and_rewards(self, start_idx):
         """
-        Get sum of rewards for all agents, and the global state at a given timestep, and the previous timestep,
-        within a specified episode.
+        Get sum of rewards for all agents, state at timestep t and state at timestep t+1
+        starting from a given index.
         """
 
-        # Determine episode boundaries 
-        if episode == 0:
-            episode_start = 0
+        # Find the terminal timestep for this episode
+        terminal_idx = min([idx for idx in self.new_episode_indices if idx >= start_idx])
+
+        # Get state at timestep t
+        state_t = self.global_states[start_idx]
+
+        # Get state at timestep t+1 if not terminal
+        if start_idx < terminal_idx:
+            state_t_plus_1 = self.global_states[start_idx + 1]
         else:
-            episode_start = self.new_episode_indices[episode - 1] + 1
+            state_t_plus_1 = None
 
-        episode_end = self.new_episode_indices[episode]  
+        # Sum rewards across all agents at timestep t
+        sum_rewards = np.sum(self.rewards[start_idx])
 
-        # Compute absolute index within buffer
-        index = episode_start + timestep
+        return sum_rewards, state_t, state_t_plus_1, terminal_idx
 
-        #  Get state at timestep t and t+1
-        state_t = self.global_states[index]
-        if index < episode_end:
-            state_t_plus_1 = self.global_states[index + 1]
-        else:
-            state_t_plus_1 = None  # no next state if terminal
 
-        # Sum of rewards across all agents 
-        sum_rewards = np.sum(self.rewards[index])
-
-        return sum_rewards, state_t, state_t_plus_1
-                

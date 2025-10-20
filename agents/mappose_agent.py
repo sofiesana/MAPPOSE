@@ -206,33 +206,41 @@ class MAPPOSE(Agent):
         return individual_clipped_obj, entropies
     
 
-    def compute_GAE_advantages(self, rewards, values, dones, state_t, state_t_minus_1, gamma=None, lamda=0.95):
-        """Compute Generalized Advantage Estimation (GAE) advantages - for each trajectory in the batch.
-        Args:
-            - rewards: Tensor of shape [batch_size, seq_len]
-            - values: Tensor of shape [batch_size, seq_len]
-            - dones: Tensor of shape [batch_size, seq_len]
-            - gamma: discount factor
-            - lamda: GAE lambda parameter
-        Returns:
-            - advantages: Tensor of GAE advantages
+    def compute_GAE_from_index(self, start_idx, critic_model, gamma=0.99, lamda=0.95):
+        """
+        Compute GAE advantages for a single trajectory starting from start_idx to end of episode.
+        Values are computed on the fly using critic_model.
         """
 
-        if gamma is None:
-            gamma = self.discount_factor
+        advantages_list = []
+        last_advantage = torch.tensor(0.0, device=self.device)
 
-        batch_size, seq_len = rewards.shape
-        advantages = torch.zeros_like(rewards).to(self.device)
-        last_advantage = torch.zeros(batch_size).to(self.device)
+        # Get terminal timestep for this episode
+        _, _, _, terminal_idx = self.get_timestep_state_and_rewards(start_idx)
 
-        for t in reversed(range(seq_len)):
-            mask = 1.0 - dones[:, t]
-            last_advantage = last_advantage * mask
-            delta = rewards[:, t] + gamma * values[:, t + 1] * mask - values[:, t]
+        # Iterate backwards from terminal_idx to start_idx
+        for t in reversed(range(start_idx, terminal_idx + 1)):
+            sum_rewards, state_t, state_t_plus_1, _ = self.get_timestep_state_and_rewards(t)
+
+            # Compute value estimates on the fly
+            value_t = critic_model(state_t).squeeze(-1)
+            if state_t_plus_1 is not None:
+                value_t_plus_1 = critic_model(state_t_plus_1).squeeze(-1)
+            else:
+                value_t_plus_1 = torch.zeros_like(value_t)
+
+            # TD error
+            delta = sum_rewards + gamma * value_t_plus_1 - value_t
+
+            # GAE advantage
             last_advantage = delta + gamma * lamda * last_advantage
-            advantages[:, t] = last_advantage
+            advantages_list.insert(0, last_advantage)
 
-        return advantages # shape [batch_size, seq_len]
+        # Stack to tensor
+        advantages_tensor = torch.stack(advantages_list)
+        return advantages_tensor
+
+
 
 
 
@@ -251,7 +259,19 @@ class MAPPOSE(Agent):
 
             # TODO: Compute advantages using critic (GAE)
 
-            rewards_sum, state_t, state_t_plus_1 = buffer.get_episode_state_and_rewards(episode=0, timestep=0)
+            advantages_n_list = []
+
+            # Loop over batch of trajectories (start indices)
+            for start_idx in start_idxs_n:
+                # compute GAE for each trajectory individually
+                advantages_traj = self.compute_GAE_from_index(start_idx, self.critic_model)
+                advantages_n_list.append(advantages_traj)
+
+            # Pad or stack to get [batch_size, seq_len]
+            advantages_n = torch.nn.utils.rnn.pad_sequence(advantages_n_list, batch_first=True, padding_value=0.0)
+
+
+            # advantages_n = self.compute_GAE_from_index(start_idxs_n, self.critic_model)  # shape [batch_size, seq_len]
 
             # Compute reward-to-go
             reward_to_go_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
