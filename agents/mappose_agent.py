@@ -7,6 +7,7 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 import copy
+import time
 
 from agents.agent import Agent
 from buffer import Buffer
@@ -67,13 +68,12 @@ class MAPPOSE(Agent):
 
         self.critic_model_target.load_state_dict(target_state_dict)
 
-    def update_prev_actor_model(self, agent_idx):
-        """Change the previous actor model to the new updated model
-        Args:
-            - agent_idx: index of agent to update networks
+    def update_prev_actor_models(self):
+        """Change the previous actor models
         """
 
-        self.actor_prev_models_list[agent_idx].load_state_dict(self.actor_models_list[agent_idx].state_dict())
+        for agent_idx in range(self.num_agents):
+            self.actor_prev_models_list[agent_idx].load_state_dict(self.actor_models_list[agent_idx].state_dict())
    
     def choose_action(self, obs_list, hidden_list):
         """Choose actions for all agents based on their observations
@@ -142,33 +142,6 @@ class MAPPOSE(Agent):
         return log_probs_list
     
 
-    # def compute_rewards_to_go(self, rewards, dones, gamma=None):
-    #     """
-    #     Compute discounted rewards-to-go for each trajectory in the batch.
-
-    #     Args:
-    #         - rewards: Tensor of shape [batch_size, seq_len]
-    #         - dones: Tensor of shape [batch_size, seq_len] 
-    #         - gamma: discount factor
-    #     Returns:
-    #         - returns: Tensor of rewards-to-go from each timestep
-    #     """
-
-    #     if gamma is None:
-    #         gamma = self.discount_factor
-
-    #     batch_size, seq_len = rewards.shape
-    #     returns = torch.zeros_like(rewards).to(self.device)
-    #     running_return = torch.zeros(batch_size).to(self.device)
-
-    #     # Compute backward through time
-    #     for t in reversed(range(seq_len)):
-    #         # Reset running return where episode ended
-    #         running_return = rewards[:, t] + gamma * running_return * (1 - dones[:, t])
-    #         returns[:, t] = running_return
-
-    #     return returns
-
     def convert_sample_to_tensor(self, array, dtype=torch.float32):
         """ Convert samples from buffer to torch tensors
 
@@ -182,7 +155,7 @@ class MAPPOSE(Agent):
 
         return array
     
-    def get_clipped_objective(self, actions_seq, obs_seq, advantages, agent_idx):
+    def get_clipped_objective(self, actions_seq, obs_seq, advantages, old_log_probs, agent_idx, return_log_probs=False):
         """Calculate PPO clipped objective for a given agent
         Args:
             - actions_seq: sequence of actions for agent n
@@ -196,17 +169,23 @@ class MAPPOSE(Agent):
         """
 
         current_log_probs, entropies = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_models_list[agent_idx], get_entropy=True)
-        with torch.no_grad():
-            old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx])
+        if old_log_probs is None:
+            with torch.no_grad():
+                old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx])
 
         policy_ratio = torch.exp(current_log_probs - old_log_probs)
 
+        # print("Policy ratio shape:", policy_ratio.shape, "Advantages shape:", advantages.shape)
+
         individual_clipped_obj = torch.min(policy_ratio * advantages, policy_ratio.clamp(1.0 - self.epsilon, 1.0 + self.epsilon) * advantages)
+
+        if return_log_probs:
+            return individual_clipped_obj, entropies, current_log_probs
 
         return individual_clipped_obj, entropies
     
 
-    def compute_GAE_from_index(self, start_idx, critic_model, gamma=0.99, lamda=0.95):
+    def compute_GAE_from_index(self, buffer: Buffer, start_idx, critic_model, gamma=0.99, lamda=0.95):
         """
         Compute GAE advantages for a single trajectory starting from start_idx to end of episode.
         Values are computed on the fly using critic_model.
@@ -216,32 +195,53 @@ class MAPPOSE(Agent):
         last_advantage = torch.tensor(0.0, device=self.device)
 
         # Get terminal timestep for this episode
-        _, _, _, terminal_idx = self.get_timestep_state_and_rewards(start_idx)
+        # _, _, _, terminal_idx = buffer.get_timestep_state_and_rewards(start_idx)
+        sum_rewards, states, next_states, dones = buffer.get_timestep_state_and_rewards(start_idx)
+        sum_rewards, states, next_states, dones = self.convert_sample_to_tensor([sum_rewards, states, next_states, dones])
 
-        # Iterate backwards from terminal_idx to start_idx
-        for t in reversed(range(start_idx, terminal_idx + 1)):
-            sum_rewards, state_t, state_t_plus_1, _ = self.get_timestep_state_and_rewards(t)
+        with torch.no_grad():
+            value_t = critic_model(states).squeeze(-1)
+            value_t_plus_1 = critic_model(next_states).squeeze(-1)
 
-            # Compute value estimates on the fly
-            value_t = critic_model(state_t).squeeze(-1)
-            if state_t_plus_1 is not None:
-                value_t_plus_1 = critic_model(state_t_plus_1).squeeze(-1)
-            else:
-                value_t_plus_1 = torch.zeros_like(value_t)
+        # Zero next_value where terminal
+        value_t_plus_1 = value_t_plus_1 * (1.0 - dones)
 
-            # TD error
-            delta = sum_rewards + gamma * value_t_plus_1 - value_t
+        # TD error
+        deltas = sum_rewards + gamma * value_t_plus_1 - value_t
 
-            # GAE advantage
-            last_advantage = delta + gamma * lamda * last_advantage
-            advantages_list.insert(0, last_advantage)
+        # Compute GAE backwards (fast loop on GPU)
+        advantages = torch.zeros_like(deltas)
+        last_adv = 0
+        for t in reversed(range(len(deltas))):
+            last_adv = deltas[t] + gamma * lamda * (1 - dones[t]) * last_adv
+            advantages[t] = last_adv
 
-        # Stack to tensor
-        advantages_tensor = torch.stack(advantages_list)
-        return advantages_tensor
+        # # Iterate backwards from terminal_idx to start_idx
+        # for t in reversed(range(start_idx, terminal_idx + 1)):
+        #     sum_rewards, state_t, state_t_plus_1, _ = buffer.get_timestep_state_and_rewards(t)
+        #     state_t = torch.tensor(state_t, dtype=torch.float32).unsqueeze(0).to(self.device)
 
+        #     # Compute value estimates on the fly
+        #     value_t = critic_model(state_t).squeeze()
+        #     if state_t_plus_1 is not None:
+        #         state_t_plus_1 = torch.tensor(state_t_plus_1, dtype=torch.float32).unsqueeze(0).to(self.device)
+        #         value_t_plus_1 = critic_model(state_t_plus_1).squeeze()
+        #     else:
+        #         value_t_plus_1 = torch.zeros_like(value_t)
 
+        #     # TD error
+        #     delta = sum_rewards + gamma * value_t_plus_1 - value_t
 
+        #     # GAE advantage
+        #     last_advantage = delta + gamma * lamda * last_advantage
+        #     advantages_list.insert(0, last_advantage)
+
+        # # Stack to tensor
+        # advantages_tensor = torch.stack(advantages_list[:self.seq_size])  # Limit to seq_size
+
+        # return advantages_tensor
+
+        return advantages[:self.seq_size]
 
 
     
@@ -249,83 +249,76 @@ class MAPPOSE(Agent):
         """Update values of centralized value function and individual actors using shared experience
         Args:
             - buffer: sequential buffer for all agents
+        Returns:
+            - loss_list: list of actor losses for each agent
         """
+
+        actor_loss_list = []
 
         ### Update Actor Networks ###
         for n in range(self.num_agents):
-            print("Updating agent", n)
-            states, obs_seq_n, actions_seq_n, rewards_seq_n, _, dones_seq_n, hidden_states_seq_n, start_idxs_n = buffer.sample_agent_batch(n, self.batch_size, window_size=self.seq_size) # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
-            states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n = self.convert_sample_to_tensor([states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n], dtype=torch.float32)
-
-            # TODO: Compute advantages using critic (GAE)
+            # print("Updating agent", n)
+            # start_time = time.time()
+            states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n, start_idxs_n = buffer.sample_agent_batch(n, self.batch_size, window_size=self.seq_size) # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
+            states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n = self.convert_sample_to_tensor([states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n], dtype=torch.float32)
+            
+            # end_buffer_sample_time = time.time()
+            # print("Sample batch time:", round(end_buffer_sample_time - start_time, 4))
 
             advantages_n_list = []
-
             # Loop over batch of trajectories (start indices)
             for start_idx in start_idxs_n:
                 # compute GAE for each trajectory individually
-                advantages_traj = self.compute_GAE_from_index(start_idx, self.critic_model)
+                advantages_traj = self.compute_GAE_from_index(buffer, start_idx, self.critic_model)
                 advantages_n_list.append(advantages_traj)
-
-            # Pad or stack to get [batch_size, seq_len]
-            advantages_n = torch.nn.utils.rnn.pad_sequence(advantages_n_list, batch_first=True, padding_value=0.0)
-
-
-            # Compute reward-to-go
-            reward_to_go_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
-
-            # Get state values from critic
-            with torch.no_grad():
-                values_seq, _ = self.critic_model(states)      
-                values_seq = values_seq.squeeze(-1)             
-
-            # Compute advantages
-            advantages_n = reward_to_go_n - values_seq
+            advantages_n = torch.nn.utils.rnn.pad_sequence(advantages_n_list, batch_first=True, padding_value=0.0) # Pad or stack to get [batch_size, seq_len]
+            
+            # end_advantage_compute_time = time.time()
+            # print("Compute advantages time:", round(end_advantage_compute_time - end_buffer_sample_time, 4))
 
             ## Get Individual Loss ##
-            individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, n)
+            individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, old_log_probs_seq_n, n)
             individual_loss = -(individual_clipped_obj + entropies)
+
+            # end_individual_loss_time = time.time()
+            # print("Individual loss time:", round(end_individual_loss_time - end_advantage_compute_time, 4))
 
             ## Get Shared Experience Loss ##
             total_shared_loss = 0
             for not_n in range(self.num_agents):
                 if not_n != n: # For each other agent
-                    print("Updating Shared Experience of Agent: ", not_n)
-                    states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, _, dones_seq_not_n, hidden_states_seq_not_n, start_idxs_not_n = buffer.sample_agent_batch(not_n, self.batch_size, window_size=self.seq_size) # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
-                    states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n = self.convert_sample_to_tensor([states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n], dtype=torch.float32)
+                    # print("Updating Shared Experience of Agent: ", not_n)
+                    states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n, start_idxs_not_n = buffer.sample_agent_batch(not_n, self.batch_size, window_size=self.seq_size) # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
+                    states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n = self.convert_sample_to_tensor([states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n], dtype=torch.float32)
 
-                    reward_to_go_not_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_not_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
-                    # advantages_not_n = torch.ones((self.batch_size, self.seq_size)).to(self.device) 
+                    # end_other_agent_sample_time = time.time()
+                    # print("Other agent batch sample time:", round(end_other_agent_sample_time - end_individual_loss_time, 4))
 
                     advantages_not_n_list = []
-
                     # Loop over batch of trajectories for agent not_n
                     for start_idx in start_idxs_not_n:
-                        advantages_traj = self.compute_GAE_from_index(start_idx, self.critic_model)
+                        advantages_traj = self.compute_GAE_from_index(buffer, start_idx, self.critic_model)
                         advantages_not_n_list.append(advantages_traj)
-
                     # Stack/pad to get [batch_size, seq_len]
                     advantages_not_n = torch.nn.utils.rnn.pad_sequence(advantages_not_n_list, batch_first=True, padding_value=0.0)
 
+                    # end_other_agent_advantage_time = time.time()
+                    # print("Other agent advantage compute time:", round(end_other_agent_advantage_time - end_other_agent_sample_time, 4))
 
+                    shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, n, return_log_probs=True)
+                    shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
+                    shared_loss = -(shared_clipped_obj + entropies_n) * shared_experience_ratio  # TODO I do not know exactly what to do with the entropy part, ill just do it on agent n
 
-
-                    shared_clipped_obj, entropies = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, not_n)
-                    current_log_probs_agent_n, entropies_agent_n = self.get_prob_action_given_obs(actions_seq_not_n, obs_seq_not_n, self.actor_models_list[n], get_entropy=True)
-                    with torch.no_grad():
-                        current_log_probs_agent_not_n, entropies_agent_not_n = self.get_prob_action_given_obs(actions_seq_not_n, obs_seq_not_n, self.actor_models_list[not_n], get_entropy=True)
-                    shared_experience_ratio = torch.exp(current_log_probs_agent_n - current_log_probs_agent_not_n) # Importance sampling between agent n and not_n
-
-                    # TODO I do not know exactly what to do with the entropy part, ill just do it on agent n
-                    shared_loss = -(shared_clipped_obj + entropies_agent_n) * shared_experience_ratio
+                    # end_other_agent_loss_time = time.time()
+                    # print("Other agent loss compute time:", round(end_other_agent_loss_time - end_other_agent_advantage_time, 4))
 
                     total_shared_loss += shared_loss
 
             mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
             total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
+            actor_loss_list.append(total_actor_loss.item())
 
             # TODO need to only update the prev actor model after all training on buffer, and set old policy to be one that collected the data
-            self.update_prev_actor_model(n) # Update prev network to current before optimizing current
 
             # Optimize policy network
             # POTENTIAL ISSUE!! - Updating each agent one at a time could cause issues since changes prob in loss
@@ -335,9 +328,8 @@ class MAPPOSE(Agent):
 
 
         ### Update Critic Network ###
-
-        values_seq, _ = self.critic_model(states)
-        values_seq = values_seq.squeeze(-1)         
+        reward_to_go_not_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_not_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
+        values_seq = self.critic_model(states).squeeze(-1)
         critic_loss = F.mse_loss(values_seq, reward_to_go_not_n)
 
 
@@ -346,6 +338,6 @@ class MAPPOSE(Agent):
         critic_loss.backward()
         self.optimizer_critic.step()
 
-        ## Update target network
-        # self.update_target_model()
+        return actor_loss_list, critic_loss.item()
+
 

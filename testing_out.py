@@ -5,10 +5,12 @@ from util import get_full_state
 from buffer import Buffer
 
 from agents.agent_factory import AgentFactory
+from plotting import LiveLossPlotter
 
-N_TRAIN_EPISODES = 10
+N_TRAIN_EPISODES = 1
 N_TEST_EPISODES = 3
-ITERS = 1
+N_TRAIN_EPOCHS = 5
+ITERS = 5
 
 def inspect_environment(env):
     print("Observation space:", env.observation_space)
@@ -24,9 +26,6 @@ def inspect_environment(env):
     else:
         print(f"Obs shape: {np.array(obs).shape} | type: {type(obs)}")
         print(obs)
-
-
-
 
 
 def run_episode(env, agent, mode, buffer: Buffer):
@@ -56,9 +55,9 @@ def run_episode(env, agent, mode, buffer: Buffer):
             observations=observation,
             actions=action,
             rewards=reward,
-            next_observations=new_observation,
             dones=terminated,
-            hidden_states=hidden_states
+            hidden_states=hidden_states,
+            log_probs=log_probs
         )
         # buffer.print_attributes()
         # buffer.print_buffer()
@@ -102,11 +101,10 @@ def run_episode(env, agent, mode, buffer: Buffer):
     if mode == 'train':
         print("Training step...")
         # agent.store_transition(observation, action, reward, new_observation, terminated)
-        agent.learn(buffer)
         
     return ep_return, step_counter, terminated
 
-def run_episodes(env, agent, num_episodes, mode='train'):
+def run_episodes(env, agent, num_episodes, plotter, mode='train'):
     """Run multiple episodes and store the returns. If testing, no learning occurs."""
 
     returns = []
@@ -130,19 +128,27 @@ def run_episodes(env, agent, num_episodes, mode='train'):
         print(f"Episode {ep} | mean return: {reward_sum} | terminated: {bool(terminated)}")
 
     if mode == 'train':
-        agent.save_rewards()
-        agent.save_model()
+        # agent.save_rewards()
+        # agent.save_model()
+        for epoch in range(N_TRAIN_EPOCHS):
+            print(f"Training epoch {epoch + 1}/{N_TRAIN_EPOCHS}")
+            actor_loss_list, critic_loss = agent.learn(buffer)
+            print("Actor 1 loss:", actor_loss_list[0], " ---  Actor 2 loss:", actor_loss_list[1], " ---  Critic loss:", critic_loss)
+            plotter.update(np.mean(actor_loss_list))
+
+        agent.update_prev_actor_models() # Update prev network to current before optimizing current
     elif mode == 'test':
         print(f"Average test return: {np.mean(agent.test_returns)}")
-        agent.save_test_returns()
+        # agent.save_test_returns()
 
-    return returns
+    return returns, actor_loss_list, critic_loss
 
 
 def run_environment(args):
     """Main function to set up and run the environment with the specified agent"""
     # set up looping through iters
     agent_factory = AgentFactory()
+    plotter = LiveLossPlotter()
     for iteration in range(ITERS):
         print(f"Iteration {iteration + 1}/{ITERS}")
         # add iteration to args
@@ -153,7 +159,7 @@ def run_environment(args):
         
         # Training phase
         # print(f"Training {agent.agentName} agent...")
-        run_episodes(env, agent, N_TRAIN_EPISODES, mode='train')
+        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_TRAIN_EPISODES, plotter, mode='train')
         
         # Testing phase
         # print(f"Testing {agent.agentName} agent...")
