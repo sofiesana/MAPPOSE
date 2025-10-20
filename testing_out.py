@@ -51,8 +51,6 @@ def run_episode(env, agent, mode, buffer: Buffer):
         # action = env.action_space.sample()  # Random action for placeholder
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
-
-        print("Reward: ", reward)
         
         buffer.store_transitions(
             global_states=global_state,
@@ -116,7 +114,7 @@ def run_episodes(env, agent, num_episodes, mode='train'):
     n_agents = len(env.observation_space)
     observation_dim = env.observation_space[0].shape[0]
     hidden_state_dim = 128  # example hidden state dimension for RNN
-    buffer = Buffer(size=200, n_agents=n_agents, global_state_dim=global_state_dim,
+    buffer = Buffer(size=1000, n_agents=n_agents, global_state_dim=global_state_dim,
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     # buffer.print_attributes()
 
