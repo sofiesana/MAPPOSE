@@ -111,6 +111,35 @@ class Buffer:
             raise ValueError("No valid sequence found")
         # print("Valid start indices for window sampling:", valid_starts)
         return valid_starts
+    
+    def get_rewards_to_go(self, window_size, start_idxs, discount_factor=0.99):
+        """Get rewards to go for each timestep in the window
+
+        Args:
+            window_size (int): size of sequence window
+            start_idx (List): list of starting index of the window
+            discount_factor (float, optional): discount factor. Defaults to 0.99.
+        """
+        rewards_to_go = np.zeros((len(start_idxs), window_size))
+
+        for b, start_idx in enumerate(start_idxs):
+            idx = start_idx + window_size
+            last_timestep_rewards_to_go = 0
+            # Get rewards to go of last timestep in window, to later calculate previous ones
+            while self.dones[idx, 0] != True:
+                all_agents_rewards = np.sum(self.rewards[idx])
+                last_timestep_rewards_to_go += all_agents_rewards * discount_factor ** (idx - start_idx - window_size)
+                idx = idx + 1
+
+            # Calculate rewards to go backwards
+            for t in reversed(range(window_size)):
+                idx = (start_idx + t)
+                all_agents_rewards = np.sum(self.rewards[idx])
+                rewards_to_go[b, t] = all_agents_rewards + discount_factor * last_timestep_rewards_to_go
+                last_timestep_rewards_to_go = rewards_to_go[b, t]
+
+        return rewards_to_go
+
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
         if window_size > self.size:
@@ -132,7 +161,8 @@ class Buffer:
             start_index = np.random.choice(valid_starts)
             window = [(start_index + i) % self.size for i in range(window_size)]
             batch_indices[b] = window
-        # print("Sampled batch indices for agent", agent_index, ":\n", batch_indices)
+        # print("Sampled batch indices for agent", agent_index, ":\n", batch_indices, "Batch shape:", batch_indices.shape)
+        start_idxs = [indices[0] for indices in batch_indices]
 
         return (self.global_states[batch_indices, agent_index],
                 self.observations[batch_indices, agent_index],
@@ -140,7 +170,8 @@ class Buffer:
                 self.rewards[batch_indices, agent_index],
                 self.next_observations[batch_indices, agent_index],
                 self.dones[batch_indices, agent_index], 
-                self.hidden_states[batch_indices, agent_index])
+                self.hidden_states[batch_indices, agent_index],
+                start_idxs)
     
     def get_episode_state_and_rewards(self, episode, timestep):
         """
@@ -170,3 +201,4 @@ class Buffer:
         sum_rewards = np.sum(self.rewards[index])
 
         return sum_rewards, state_t, state_t_plus_1
+                

@@ -3,17 +3,16 @@ import numpy as np
 from agents.agent import Agent
 
 class Random(Agent):
-    def __init__(self, memory_size, state_dimensions, n_actions, action_scale):
+    def __init__(self, memory_size, state_dimensions, n_actions, num_agents):
         super().__init__(memory_size, state_dimensions, n_actions)
 
         self.num_actions = n_actions
-        self.action_high = action_scale
-        self.action_low = action_scale * -1
+        self.num_agents = num_agents
 
     def choose_action(self, observation):
-        actions = np.random.uniform(self.action_low, self.action_high, size=self.num_actions)
+        action_list = np.random.randint(low=0, high=self.n_actions, size=self.num_agents)
 
-        return actions, None
+        return action_list
     
     def learn(self) -> None:
         pass
