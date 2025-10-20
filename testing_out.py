@@ -51,6 +51,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
         # action = env.action_space.sample()  # Random action for placeholder
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
+
+        print("Reward: ", reward)
         
         buffer.store_transitions(
             global_states=global_state,
