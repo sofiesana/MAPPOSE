@@ -170,7 +170,7 @@ class MAPPOSE(Agent):
         return returns
     
 
-    def compute_GAE_advantages(self, rewards, values, dones, gamma=None, lamda=0.95):
+    def compute_GAE_advantages(self, rewards, values, dones, state_t, state_t_minus_1, gamma=None, lamda=0.95):
         """Compute Generalized Advantage Estimation (GAE) advantages - for each trajectory in the batch.
         Args:
             - rewards: Tensor of shape [batch_size, seq_len]
@@ -229,6 +229,8 @@ class MAPPOSE(Agent):
 
 
             # TODO: Compute advantages using critic (GAE)
+
+            rewards_sum, state_t, state_t_plus_1 = buffer.get_episode_state_and_rewards(episode=, timestep=0)
 
             # Compute reward-to-go
             print(rewards_seq_n.shape, dones_seq_n.shape)

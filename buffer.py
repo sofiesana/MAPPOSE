@@ -159,16 +159,14 @@ class Buffer:
         # Compute absolute index within buffer
         index = episode_start + timestep
 
-        #  Get state at timestep t and t-1
+        #  Get state at timestep t and t+1
         state_t = self.global_states[index]
-        state_t_minus_1 = self.global_states[index - 1] if timestep > 0 else None
+        if index < episode_end:
+            state_t_plus_1 = self.global_states[index + 1]
+        else:
+            state_t_plus_1 = None  # no next state if terminal
 
         # Sum of rewards across all agents 
         sum_rewards = np.sum(self.rewards[index])
 
-        return sum_rewards, state_t, state_t_minus_1
-
-
-
-
-
+        return sum_rewards, state_t, state_t_plus_1
