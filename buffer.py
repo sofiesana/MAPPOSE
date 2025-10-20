@@ -145,30 +145,27 @@ class Buffer:
     
     def get_episode_state_and_rewards(self, episode, timestep):
         """
-        Get sum of rewards for all agents, and the global state at a given timestep (and the previous timestep)
+        Get sum of rewards for all agents, and the global state at a given timestep, and the previous timestep,
         within a specified episode.
         """
 
+        # Determine episode boundaries 
+        if episode == 0:
+            episode_start = 0
+        else:
+            episode_start = self.new_episode_indices[episode - 1] + 1
 
-        episode_start = self.new_episode_indices[episode]
-        episode_end = self.new_episode_indices[episode + 1]  # next episode start
+        episode_end = self.new_episode_indices[episode]  
 
-        episode_length = episode_end - episode_start
-        if timestep >= episode_length:
-            raise ValueError(f"Timestep {timestep} out of range for episode {episode} (max {episode_length - 1}).")
-
-        # --- Compute absolute buffer index ---
+        # Compute absolute index within buffer
         index = episode_start + timestep
 
-        # --- Get state at timestep t ---
+        #  Get state at timestep t and t-1
         state_t = self.global_states[index]
-
-        # --- Get previous state (if exists) ---
         state_t_minus_1 = self.global_states[index - 1] if timestep > 0 else None
 
-        # --- Sum of rewards across all agents ---
+        # Sum of rewards across all agents 
         sum_rewards = np.sum(self.rewards[index])
-
 
         return sum_rewards, state_t, state_t_minus_1
 
