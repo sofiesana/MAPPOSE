@@ -136,6 +136,35 @@ class MAPPOSE(Agent):
             return log_probs_list, entropy
 
         return log_probs_list
+    
+
+    def compute_rewards_to_go(self, rewards, dones, gamma=None):
+        """
+        Compute discounted rewards-to-go for each trajectory in the batch.
+
+        Args:
+            - rewards: Tensor of shape [batch_size, seq_len]
+            - dones: Tensor of shape [batch_size, seq_len] 
+            - gamma: discount factor
+        Returns:
+            - returns: Tensor of rewards-to-go from each timestep
+        """
+
+        if gamma is None:
+            gamma = self.discount_factor
+
+        batch_size, seq_len = rewards.shape
+        returns = torch.zeros_like(rewards).to(self.device)
+        running_return = torch.zeros(batch_size).to(self.device)
+
+        # Compute backward through time
+        for t in reversed(range(seq_len)):
+            # Reset running return where episode ended
+            running_return = rewards[:, t] + gamma * running_return * (1 - dones[:, t])
+            returns[:, t] = running_return
+
+        return returns
+
 
     
     def learn(self, buffer: Buffer):
@@ -162,7 +191,19 @@ class MAPPOSE(Agent):
             dones_seq_n = torch.tensor(dones_seq_n, dtype=torch.float32).to(self.device)
             hidden_states_seq_n = torch.tensor(hidden_states_seq_n, dtype=torch.float32).to(self.device)
 
-            advantages = torch.ones((self.batch_size, self.seq_size)).to(self.device) # TODO still gotta do this with rewards-to-go
+
+            # TODO: Compute advantages using critic (GAE)
+
+            # Compute reward-to-go
+            reward_to_go = self.compute_rewards_to_go(rewards_seq_n, dones_seq_n)  # shape: [batch_size, seq_len]
+
+            # Get state values from critic
+            with torch.no_grad():
+                values_seq, _ = self.critic_model(states)      
+                values_seq = values_seq.squeeze(-1)             
+
+            # Compute advantages
+            advantages = reward_to_go - values_seq
 
             ## Get Individual Loss ##
             current_log_probs, entropies = self.get_prob_action_given_obs(actions_seq_n, obs_seq_n, self.actor_models_list[n], get_entropy=True)
@@ -177,6 +218,7 @@ class MAPPOSE(Agent):
             for not_n in range(self.num_agents):
                 if not_n != n: # For each other agent
                     print("Updating Shared Experience of Agent: ", not_n)
+    
                     states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, _, dones_seq_not_n, hidden_states_seq_not_n = buffer.sample_agent_batch(not_n, self.batch_size, window_size=self.seq_size) # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
 
                     states = torch.tensor(states, dtype=torch.float32).to(self.device)
@@ -186,7 +228,7 @@ class MAPPOSE(Agent):
                     dones_seq_not_n = torch.tensor(dones_seq_not_n, dtype=torch.float32).to(self.device)
                     hidden_states_seq_not_n = torch.tensor(hidden_states_seq_not_n, dtype=torch.float32).to(self.device)
 
-                    advantages = torch.ones((self.batch_size, self.seq_size)).to(self.device) # TODO still gotta do this with rewards-to-go
+                    advantages = torch.ones((self.batch_size, self.seq_size)).to(self.device) 
 
                     current_log_probs_agent_n, entropies_agent_n = self.get_prob_action_given_obs(actions_seq_not_n, obs_seq_not_n, self.actor_models_list[n], get_entropy=True)
                     with torch.no_grad():
@@ -215,5 +257,22 @@ class MAPPOSE(Agent):
             total_actor_loss.backward()
             self.optimizers_actor_list[n].step()
 
-            self.update_target_model()
+
+        ### Update Critic Network ###
+        batch_size, seq_len, state_dim = states.shape
+        states_flat = states.view(batch_size * seq_len, state_dim)
+        reward_to_go_flat = reward_to_go.view(batch_size * seq_len)
+
+        values_seq, _ = self.critic_model(states)
+        values_seq = values_seq.squeeze(-1)         
+        critic_loss = F.mse_loss(values_seq, reward_to_go)
+
+
+        # Optimize critic network
+        self.optimizer_critic.zero_grad()
+        critic_loss.backward()
+        self.optimizer_critic.step()
+
+        ## Update target network
+        # self.update_target_model()
 
