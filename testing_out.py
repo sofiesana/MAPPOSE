@@ -40,22 +40,16 @@ def run_episode(env, agent, mode, buffer: Buffer):
     step_counter = 0
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
-    step = 0
     while not episode_ended:
         env.render()
         # pause until key press
-        input("Press Enter to continue...")
+        # input("Press Enter to continue...")
 
-        step_counter += 1
         action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
         # action = env.action_space.sample()  # Random action for placeholder
         
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
-
-        print(" step:", step)
-        if step == 10:
-            terminated = True  # force termination for testing
         
         buffer.store_transitions(
             global_states=global_state,
@@ -68,8 +62,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
         )
         # buffer.print_attributes()
         # buffer.print_buffer()
-        batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
-        step += 1
+        # batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
 
         # you can also store single agent transition if needed
         # dummy_single_agent_transition = {
@@ -99,12 +92,12 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
         ep_return.append(reward)
 
-        terminated = False
             
         if terminated or truncated:
             episode_ended = True
             
         observation = new_observation
+        step_counter += 1
 
     if mode == 'train':
         print("Training step...")

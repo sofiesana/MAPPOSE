@@ -40,9 +40,9 @@ class Buffer:
         self.next_observations[self.current_index] = next_observations
         self.dones[self.current_index] = dones
         self.hidden_states[self.current_index] = hidden_states
-        print(dones)
+        
         if dones:
-            print("Storing new episode index at:", self.current_index)
+            # print("Storing new episode index at:", self.current_index)
             self.new_episode_indices.append(self.current_index)
 
         if not self.buffer_filled:
@@ -94,18 +94,17 @@ class Buffer:
             max_index = self.current_index
 
         valid_starts = []
-        print(" terminal indices:", self.new_episode_indices)
+        # print(" terminal indices:", self.new_episode_indices)
         for start in range(max_index):
             # Build window indices with wrapping
             window = [(start + i) % self.size for i in range(window_size)]
-            print("Checking window:", window)
             # print(window)
             if not self.buffer_filled and (start + window_size > self.current_index):
-                print("window:", window, "skipped because it exceeds current_index")
+                # print("window:", window, "skipped because it exceeds current_index")
                 continue
-            print(" checking if any of", window, "in", self.new_episode_indices)
-            if any(idx-1 in self.new_episode_indices for idx in window):
-                print("window:", window, "skipped because it crosses episode boundary")
+            actual_new_episode_indices = [((idx + 1) % self.size) for idx in self.new_episode_indices]
+            if any(idx in actual_new_episode_indices for idx in window[1:]):
+                # print("window:", window, "skipped because it crosses episode boundary", actual_new_episode_indices)
                 continue
             valid_starts.append(start)
         if not valid_starts:
