@@ -125,10 +125,6 @@ def run_episodes(env, agent, num_episodes, mode='train'):
         print("Running episode ", ep + 1, "/", num_episodes)
         ep_return, _, terminated = run_episode(env, agent, mode, buffer)
         returns.append(ep_return)
-        # if mode == 'train':
-        #     agent.store_return(ep_return)
-        # elif mode == 'test':
-        #     agent.store_test_return(ep_return)
         reward_sum = np.sum(ep_return)
         print(f"Episode {ep} | mean return: {reward_sum} | terminated: {bool(terminated)}")
 
