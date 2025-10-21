@@ -89,7 +89,7 @@ class Buffer:
     def get_valid_start_indices_for_window(self, window_size):
         # Find all valid start indices (not crossing episode boundaries)
         if self.buffer_filled:
-            max_index = self.size
+            max_index = self.size-1
         else:
             max_index = self.current_index
 
