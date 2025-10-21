@@ -74,24 +74,26 @@ class MAPPOSE(Agent):
         log_prob_list = []
         next_hidden_states = []
 
-        # Convert to tensors
-        obs_list = torch.tensor(np.array(obs_list), dtype=torch.float32).to(self.device)
-        hidden_list = torch.tensor(np.array(hidden_list), dtype=torch.float32).to(self.device)
+        with torch.no_grad():
 
-        for actor, obs, h in zip(self.actor_models_list, obs_list, hidden_list):
-            obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
-            h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
+            # Convert to tensors
+            obs_list = torch.tensor(np.array(obs_list), dtype=torch.float32).to(self.device)
+            hidden_list = torch.tensor(np.array(hidden_list), dtype=torch.float32).to(self.device)
 
-            logits, h_next = actor(obs_input, h_input)
+            for actor, obs, h in zip(self.actor_models_list, obs_list, hidden_list):
+                obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
+                h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
 
-            distribution = torch.distributions.Categorical(logits=logits)
+                logits, h_next = actor(obs_input, h_input)
 
-            action = distribution.sample()
-            log_prob = distribution.log_prob(action)
+                distribution = torch.distributions.Categorical(logits=logits)
 
-            action_list.append(action.item())
-            log_prob_list.append(log_prob.item())
-            next_hidden_states.append(h_next.squeeze().squeeze().detach().cpu().numpy())  # Remove singular dimension, convert to numpy & detach
+                action = distribution.sample()
+                log_prob = distribution.log_prob(action)
+
+                action_list.append(action.item())
+                log_prob_list.append(log_prob.item())
+                next_hidden_states.append(h_next.squeeze().squeeze().detach().cpu().numpy())  # Remove singular dimension, convert to numpy & detach
 
         return action_list, log_prob_list, next_hidden_states
     
