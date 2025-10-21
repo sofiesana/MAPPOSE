@@ -223,22 +223,6 @@ class Buffer:
 
         # Find the terminal timestep for this episode
         terminal_idx = min([idx for idx in self.new_episode_indices if idx >= start_idx])
-
-        # # Get state at timestep t
-        # state_t = self.global_states[start_idx, 0]  # assuming all agents share the same global state
-
-        # # Get state at timestep t+1 if not terminal
-        # if start_idx < terminal_idx:
-        #     state_t_plus_1 = self.global_states[start_idx + 1, 0]
-        # else:
-        #     state_t_plus_1 = None
-
-        # # Sum rewards across all agents at timestep t
-        # sum_rewards = np.sum(self.rewards[start_idx])
-
-
-        ## Updated code to return lists of rewards, states, next_states, dones ##
-        # Get list of timesteps in the episode after start_idx
         timesteps = list(range(start_idx, terminal_idx + 1))
 
         rewards = []
@@ -267,5 +251,16 @@ class Buffer:
 
         # return sum_rewards, state_t, state_t_plus_1, terminal_idx
         return rewards, states, next_states, dones #, terminal_idx
+    
+    def get_all_states_and_summed_rewards(self):
+        states_list_across_episodes = np.zeros((len(self.new_episode_indices), self.new_episode_indices[0]+1, self.global_state_dim[0])) # Shape: (num_episodes, max_episode_length, global_state_dim)
+        rewards_list_across_episodes = np.zeros((len(self.new_episode_indices), self.new_episode_indices[0]+1)) # Shape: (num_episodes, max_episode_length)
+
+        for e, start_idx in enumerate(self.new_episode_indices):
+            rewards, states, _, _ = self.get_timestep_state_and_rewards(start_idx)
+            states_list_across_episodes[e, :len(states), :] = np.array(states)
+            rewards_list_across_episodes[e, :len(rewards)] = np.array(rewards)
+
+        return states_list_across_episodes, rewards_list_across_episodes
 
 

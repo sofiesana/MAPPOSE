@@ -3,6 +3,7 @@ import rware
 import numpy as np
 from util import get_full_state
 from buffer import Buffer
+import time
 
 from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
@@ -40,10 +41,11 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
     while not episode_ended:
+        # env.render()
 
         action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
         # action = env.action_space.sample()  # Random action for placeholder
-        
+
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
         
@@ -55,8 +57,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
             dones=terminated,
             hidden_states=hidden_states,
             log_probs=log_probs
-        )       
-
+        )
         ep_return.append(reward)
 
             
@@ -119,6 +120,24 @@ def run_environment(args):
     """Main function to set up and run the environment with the specified agent"""
     # set up looping through iters
     agent_factory = AgentFactory()
+    plotter = LiveLossPlotter()
+    env = gym.make("rware-tiny-2ag-v2")
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=16)
+    for iteration in range(ITERS):
+        start_time = time.time()
+        print(f"Iteration {iteration + 1}/{ITERS}")
+        # add iteration to args
+        # agent = 0
+        # make_data_folder(agent.path)
+        
+        # Training phase
+        # print(f"Training {agent.agentName} agent...")
+        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_TRAIN_EPISODES, plotter, mode='train')
+        print("Training time for iteration", iteration + 1, ":", time.time() - start_time, "seconds")
+        
+        # Testing phase
+        # print(f"Testing {agent.agentName} agent...")
+        # run_episodes(env, agent, N_TEST_EPISODES, mode='test')
     # plotter = LiveLossPlotter()
     env = gym.make("rware-tiny-2ag-v2")
     agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=16)
