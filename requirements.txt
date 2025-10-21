@@ -7,3 +7,4 @@ torch
 tensordict
 matplotlib
 ipython
+jupyter

@@ -5,3 +5,5 @@ venv/
 *.pyc
 
 results/
+
+results_monitoring.ipynb
