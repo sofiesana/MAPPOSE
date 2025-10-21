@@ -122,7 +122,7 @@ def run_environment(args):
     agent_factory = AgentFactory()
     plotter = LiveLossPlotter()
     env = gym.make("rware-tiny-2ag-v2")
-    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=16)
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=612)
     os.mkdir("results") if not os.path.exists("results") else None
 
     for iteration in range(ITERS):
