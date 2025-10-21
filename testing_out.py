@@ -125,17 +125,28 @@ def run_environment(args):
     agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=512)
     os.mkdir("results") if not os.path.exists("results") else None
 
+    mean_returns = np.zeros(ITERS)
+    mean_actor_losses = np.zeros(ITERS)
+    mean_critic_losses = np.zeros(ITERS)
+
     for iteration in range(ITERS):
         start_time = time.time()
         env.reset()
         print(f"Iteration {iteration + 1}/{ITERS}")
     
         returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
-    
+
+        mean_returns[iteration] = np.mean(returns)
+        mean_actor_losses[iteration] = np.mean(actor_loss_list)
+        mean_critic_losses[iteration] = np.mean(critic_loss)
 
         np.save(f"results/returns_iteration_{iteration}.npy", returns)
         np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
         np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
+
+        np.save("results/_mean_returns.npy", mean_returns)
+        np.save("results/_mean_actor_losses.npy", mean_actor_losses)
+        np.save("results/_mean_critic_losses.npy", mean_critic_losses)
         print("Training time for iteration", iteration + 1, ":", time.time() - start_time, "seconds")
     
     env.close()
