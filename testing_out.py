@@ -7,10 +7,10 @@ from buffer import Buffer
 from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 
-N_TRAIN_EPISODES = 1
+N_TRAIN_EPISODES = 8
 N_TEST_EPISODES = 3
 N_TRAIN_EPOCHS = 5
-ITERS = 5
+ITERS = 1000
 
 def inspect_environment(env):
     print("Observation space:", env.observation_space)
@@ -40,7 +40,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
     while not episode_ended:
-        env.render()
+        # env.render()
         # pause until key press
         # input("Press Enter to continue...")
 
@@ -113,7 +113,7 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
     n_agents = len(env.observation_space)
     observation_dim = env.observation_space[0].shape[0]
     hidden_state_dim = 128  # example hidden state dimension for RNN
-    buffer = Buffer(size=1000, n_agents=n_agents, global_state_dim=global_state_dim,
+    buffer = Buffer(size=100000, n_agents=n_agents, global_state_dim=global_state_dim,
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     # buffer.print_attributes()
 
@@ -133,7 +133,7 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
         for epoch in range(N_TRAIN_EPOCHS):
             print(f"Training epoch {epoch + 1}/{N_TRAIN_EPOCHS}")
             actor_loss_list, critic_loss = agent.learn(buffer)
-            print("Actor 1 loss:", actor_loss_list[0], " ---  Actor 2 loss:", actor_loss_list[1], " ---  Critic loss:", critic_loss)
+            # print("Actor 1 loss:", actor_loss_list[0], " ---  Actor 2 loss:", actor_loss_list[1], " ---  Critic loss:", critic_loss)
             plotter.update(np.mean(actor_loss_list))
 
         agent.update_prev_actor_models() # Update prev network to current before optimizing current
@@ -153,7 +153,7 @@ def run_environment(args):
         print(f"Iteration {iteration + 1}/{ITERS}")
         # add iteration to args
         env = gym.make("rware-tiny-2ag-v2")
-        agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=4)
+        agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=16)
         # agent = 0
         # make_data_folder(agent.path)
         

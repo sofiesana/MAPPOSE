@@ -149,29 +149,66 @@ class Buffer:
             print("Not enough samples in buffer yet to sample the requested batch size.")
             return None # this may need to be handled differently
         
+        # get batch of length window_size 
+        batch_indices = np.zeros((batch_size, window_size), dtype=int) 
         
-        # get batch of length window_size
-        batch_indices = np.zeros((batch_size, window_size), dtype=int)
-        # print("batch size:", batch_size
-            #   , "window size:", window_size, "global state dim:", self.global_state_dim
-            #   , "observation dim:", self.observation_dim)
-
         valid_starts = self.get_valid_start_indices_for_window(window_size)
         for b in range(batch_size):
             start_index = np.random.choice(valid_starts)
             window = [(start_index + i) % self.size for i in range(window_size)]
             batch_indices[b] = window
+            # get batch of length window_size
+            # print("batch size:", batch_size
+                #   , "window size:", window_size, "global state dim:", self.global_state_dim
+                #   , "observation dim:", self.observation_dim)
+
         # print("Sampled batch indices for agent", agent_index, ":\n", batch_indices, "Batch shape:", batch_indices.shape)
         start_idxs = [indices[0] for indices in batch_indices]
 
-        return (self.global_states[batch_indices, agent_index],
-                self.observations[batch_indices, agent_index],
-                self.actions[batch_indices, agent_index],
-                self.rewards[batch_indices, agent_index],
+        return (self.global_states[batch_indices, agent_index], 
+                self.observations[batch_indices, agent_index], 
+                self.actions[batch_indices, agent_index], 
+                self.rewards[batch_indices, agent_index], 
                 self.dones[batch_indices, agent_index], 
-                self.hidden_states[batch_indices, agent_index],
-                self.old_log_probs[batch_indices, agent_index],
-                start_idxs)
+                self.hidden_states[batch_indices, agent_index], 
+                self.old_log_probs[batch_indices, agent_index], start_idxs)
+    
+    def get_all_agent_batches(self, agent_index, batch_size, window_size=10):
+        if window_size > self.size:
+            raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
+        
+        if not self.buffer_filled and self.current_index < window_size:
+            print("Not enough samples in buffer yet to sample the requested batch size.")
+            return None # this may need to be handled differently
+        
+        
+        all_batches = []
+        valid_starts = self.get_valid_start_indices_for_window(window_size)
+        # Shuffle start indices
+        rng = np.random.default_rng()
+        rng.shuffle(valid_starts)
+        for j in range(0, len(valid_starts), batch_size):
+            batch_starts = valid_starts[j:j+batch_size]
+            batch_indices = np.zeros((len(batch_starts), window_size), dtype=int)
+
+            for b, start_index in enumerate(batch_starts):
+                # start_index = np.random.choice(valid_starts)
+                window = [(start_index + i) % self.size for i in range(window_size)]
+                batch_indices[b] = window
+            start_idxs = [indices[0] for indices in batch_indices]
+
+            batch_data = (self.global_states[batch_indices, agent_index],
+                          self.observations[batch_indices, agent_index],
+                          self.actions[batch_indices, agent_index],
+                          self.rewards[batch_indices, agent_index],
+                          self.dones[batch_indices, agent_index],
+                          self.hidden_states[batch_indices, agent_index],
+                          self.old_log_probs[batch_indices, agent_index],
+                          start_idxs)
+            
+            all_batches.append(batch_data)
+
+        return all_batches  # list of batches
     
     def get_timestep_state_and_rewards(self, start_idx):
         """
