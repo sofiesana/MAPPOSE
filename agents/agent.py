@@ -39,6 +39,7 @@ class Agent(ABC):
         # self.transition_number = 0
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu") # For mac
+        print(f"Using device: {self.device}")
 
     # def store_transition(
     #     self,
