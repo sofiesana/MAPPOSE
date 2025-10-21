@@ -195,8 +195,6 @@ class Buffer:
             for b, start_index in enumerate(batch_starts):
                 # start_index = np.random.choice(valid_starts)
                 window = [(start_index + i) % self.size for i in range(window_size)]
-                if window[0] > 99990:
-                    print("Sampled start index at very high index:", window[0])
                 batch_indices[b] = window
             start_idxs = [indices[0] for indices in batch_indices]
             # print(100000 in start_idxs)
