@@ -12,15 +12,15 @@ class Buffer:
         self.hidden_state_dim = hidden_state_dim
 
         self.current_index = 0
-        self.new_episode_indices = [0]
+        self.new_episode_indices = []
 
         self.global_states = np.zeros((size, n_agents, *global_state_dim))
         self.observations = np.zeros((size, n_agents, observation_dim))
         self.actions = np.zeros((size, n_agents))
         self.rewards = np.zeros((size, n_agents))
-        self.next_observations = np.zeros((size, n_agents, observation_dim))
         self.dones = np.zeros((size, n_agents), dtype=bool)
         self.hidden_states = np.zeros((size, n_agents, hidden_state_dim))
+        self.old_log_probs = np.zeros((size, n_agents))
 
         self.buffer_filled = False
 
@@ -32,16 +32,17 @@ class Buffer:
         print(f"Observation dimension: {self.observation_dim}")
         print(f"Current index: {self.current_index}")
         
-    def store_transitions(self, global_states, observations, actions, rewards, next_observations, dones, hidden_states):
+    def store_transitions(self, global_states, observations, actions, rewards, dones, hidden_states, log_probs):
         self.global_states[self.current_index] = global_states
         self.observations[self.current_index] = observations
         self.actions[self.current_index] = actions
         self.rewards[self.current_index] = rewards
-        self.next_observations[self.current_index] = next_observations
         self.dones[self.current_index] = dones
         self.hidden_states[self.current_index] = hidden_states
-
+        self.old_log_probs[self.current_index] = log_probs
+        
         if dones:
+            # print("Storing new episode index at:", self.current_index)
             self.new_episode_indices.append(self.current_index)
 
         if not self.buffer_filled:
@@ -62,14 +63,14 @@ class Buffer:
         if self.current_index < self.size:
             self.current_index += 1
 
-    def store_single_agent_transition(self, agent_index, global_state, observation, action, reward, next_observation, done, hidden_state):
+    def store_single_agent_transition(self, agent_index, global_state, observation, action, reward, done, hidden_state, log_prob):
         self.global_states[self.current_index, agent_index] = global_state
         self.observations[self.current_index, agent_index] = observation
         self.actions[self.current_index, agent_index] = action
         self.rewards[self.current_index, agent_index] = reward
-        self.next_observations[self.current_index, agent_index] = next_observation
         self.dones[self.current_index, agent_index] = done
         self.hidden_states[self.current_index, agent_index] = hidden_state
+        self.old_log_probs[self.current_index, agent_index] = log_prob
 
         print("CAUTION: Storing single agent transition does NOT increment current_index.")
         print("please call increase_index() method after storing all agents' transitions for the current time step.")
@@ -93,48 +94,173 @@ class Buffer:
             max_index = self.current_index
 
         valid_starts = []
+        # print(" terminal indices:", self.new_episode_indices)
         for start in range(max_index):
             # Build window indices with wrapping
             window = [(start + i) % self.size for i in range(window_size)]
-            print(window)
+            # print(window)
             if not self.buffer_filled and (start + window_size > self.current_index):
-                print("window:", window, "skipped because it exceeds current_index")
+                # print("window:", window, "skipped because it exceeds current_index")
                 continue
-            if any(idx in self.new_episode_indices[1:] for idx in window[1:]):
-                print("window:", window, "skipped because it crosses episode boundary")
+            actual_new_episode_indices = [((idx + 1) % self.size) for idx in self.new_episode_indices]
+            if any(idx in actual_new_episode_indices for idx in window[1:]):
+                # print("window:", window, "skipped because it crosses episode boundary", actual_new_episode_indices)
                 continue
             valid_starts.append(start)
         if not valid_starts:
             raise ValueError("No valid sequence found")
-        print("Valid start indices for window sampling:", valid_starts)
+        # print("Valid start indices for window sampling:", valid_starts)
         return valid_starts
+    
+    def get_rewards_to_go(self, window_size, start_idxs, discount_factor=0.99):
+        """Get rewards to go for each timestep in the window
+
+        Args:
+            window_size (int): size of sequence window
+            start_idx (List): list of starting index of the window
+            discount_factor (float, optional): discount factor. Defaults to 0.99.
+        """
+        rewards_to_go = np.zeros((len(start_idxs), window_size))
+
+        for b, start_idx in enumerate(start_idxs):
+            idx = start_idx + window_size
+            last_timestep_rewards_to_go = 0
+            # Get rewards to go of last timestep in window, to later calculate previous ones
+            while self.dones[idx, 0] != True:
+                all_agents_rewards = np.sum(self.rewards[idx])
+                last_timestep_rewards_to_go += all_agents_rewards * discount_factor ** (idx - start_idx - window_size)
+                idx = idx + 1
+
+            # Calculate rewards to go backwards
+            for t in reversed(range(window_size)):
+                idx = (start_idx + t)
+                all_agents_rewards = np.sum(self.rewards[idx])
+                rewards_to_go[b, t] = all_agents_rewards + discount_factor * last_timestep_rewards_to_go
+                last_timestep_rewards_to_go = rewards_to_go[b, t]
+
+        return rewards_to_go
+
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
         if window_size > self.size:
-            raise ValueError("Window size cannot be larger than buffer size.")
+            raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
+        
+        if not self.buffer_filled and self.current_index < window_size:
+            print("Not enough samples in buffer yet to sample the requested batch size.")
+            return None # this may need to be handled differently
+        
+        # get batch of length window_size 
+        batch_indices = np.zeros((batch_size, window_size), dtype=int) 
+        
+        valid_starts = self.get_valid_start_indices_for_window(window_size)
+        for b in range(batch_size):
+            start_index = np.random.choice(valid_starts)
+            window = [(start_index + i) % self.size for i in range(window_size)]
+            batch_indices[b] = window
+            # get batch of length window_size
+            # print("batch size:", batch_size
+                #   , "window size:", window_size, "global state dim:", self.global_state_dim
+                #   , "observation dim:", self.observation_dim)
+
+        # print("Sampled batch indices for agent", agent_index, ":\n", batch_indices, "Batch shape:", batch_indices.shape)
+        start_idxs = [indices[0] for indices in batch_indices]
+
+        return (self.global_states[batch_indices, agent_index], 
+                self.observations[batch_indices, agent_index], 
+                self.actions[batch_indices, agent_index], 
+                self.rewards[batch_indices, agent_index], 
+                self.dones[batch_indices, agent_index], 
+                self.hidden_states[batch_indices, agent_index], 
+                self.old_log_probs[batch_indices, agent_index], start_idxs)
+    
+    def get_all_agent_batches(self, agent_index, batch_size, window_size=10):
+        if window_size > self.size:
+            raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
         
         if not self.buffer_filled and self.current_index < window_size:
             print("Not enough samples in buffer yet to sample the requested batch size.")
             return None # this may need to be handled differently
         
         
-        # get batch of length window_size
-        batch_indices = np.zeros((batch_size, window_size), dtype=int)
-        print("batch size:", batch_size
-              , "window size:", window_size, "global state dim:", self.global_state_dim
-              , "observation dim:", self.observation_dim)
-
+        all_batches = []
         valid_starts = self.get_valid_start_indices_for_window(window_size)
-        for b in range(batch_size):
-            start_index = np.random.choice(valid_starts)
-            window = [(start_index + i) % self.size for i in range(window_size)]
-            batch_indices[b] = window
-        print("Sampled batch indices for agent", agent_index, ":\n", batch_indices)
+        # Shuffle start indices
+        rng = np.random.default_rng()
+        rng.shuffle(valid_starts)
+        for j in range(0, len(valid_starts), batch_size):
+            batch_starts = valid_starts[j:j+batch_size]
+            batch_indices = np.zeros((len(batch_starts), window_size), dtype=int)
 
-        return (self.global_states[batch_indices, agent_index],
-                self.observations[batch_indices, agent_index],
-                self.actions[batch_indices, agent_index],
-                self.rewards[batch_indices, agent_index],
-                self.next_observations[batch_indices, agent_index],
-                self.dones[batch_indices, agent_index], 
-                self.hidden_states[batch_indices, agent_index])
+            for b, start_index in enumerate(batch_starts):
+                # start_index = np.random.choice(valid_starts)
+                window = [(start_index + i) % self.size for i in range(window_size)]
+                batch_indices[b] = window
+            start_idxs = [indices[0] for indices in batch_indices]
+
+            batch_data = (self.global_states[batch_indices, agent_index],
+                          self.observations[batch_indices, agent_index],
+                          self.actions[batch_indices, agent_index],
+                          self.rewards[batch_indices, agent_index],
+                          self.dones[batch_indices, agent_index],
+                          self.hidden_states[batch_indices, agent_index],
+                          self.old_log_probs[batch_indices, agent_index],
+                          start_idxs)
+            
+            all_batches.append(batch_data)
+
+        return all_batches  # list of batches
+    
+    def get_timestep_state_and_rewards(self, start_idx):
+        """
+        Get sum of rewards for all agents, state at timestep t and state at timestep t+1
+        starting from a given index.
+        """
+
+        # Find the terminal timestep for this episode
+        terminal_idx = min([idx for idx in self.new_episode_indices if idx >= start_idx])
+
+        # # Get state at timestep t
+        # state_t = self.global_states[start_idx, 0]  # assuming all agents share the same global state
+
+        # # Get state at timestep t+1 if not terminal
+        # if start_idx < terminal_idx:
+        #     state_t_plus_1 = self.global_states[start_idx + 1, 0]
+        # else:
+        #     state_t_plus_1 = None
+
+        # # Sum rewards across all agents at timestep t
+        # sum_rewards = np.sum(self.rewards[start_idx])
+
+
+        ## Updated code to return lists of rewards, states, next_states, dones ##
+        # Get list of timesteps in the episode after start_idx
+        timesteps = list(range(start_idx, terminal_idx + 1))
+
+        rewards = []
+        states = []
+        next_states = []
+        dones = []
+
+        for t in timesteps:
+            # Get state at time t
+            state_t = self.global_states[t, 0]  # shared global state for all agents
+            states.append(state_t)
+
+            # Get reward summed across agents
+            rewards.append(np.sum(self.rewards[t]))
+
+            # Determine if this timestep ends the episode
+            done = (t == terminal_idx)
+            dones.append(done)
+
+            # Get next state
+            if not done:
+                next_states.append(self.global_states[t + 1, 0])
+            else:
+                # For terminal state, we can duplicate last state or fill with zeros
+                next_states.append(np.zeros_like(state_t))
+
+        # return sum_rewards, state_t, state_t_plus_1, terminal_idx
+        return rewards, states, next_states, dones #, terminal_idx
+
+
