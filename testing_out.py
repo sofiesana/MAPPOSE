@@ -3,13 +3,14 @@ import rware
 import numpy as np
 from util import get_full_state
 from buffer import Buffer
+import time
 
 from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 
-N_TRAIN_EPISODES = 8
+N_TRAIN_EPISODES = 10
 N_TEST_EPISODES = 3
-N_TRAIN_EPOCHS = 5
+N_TRAIN_EPOCHS = 3
 ITERS = 1000
 
 def inspect_environment(env):
@@ -41,12 +42,10 @@ def run_episode(env, agent, mode, buffer: Buffer):
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
     while not episode_ended:
         # env.render()
-        # pause until key press
-        # input("Press Enter to continue...")
 
         action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
         # action = env.action_space.sample()  # Random action for placeholder
-        
+
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
         
@@ -59,36 +58,6 @@ def run_episode(env, agent, mode, buffer: Buffer):
             hidden_states=hidden_states,
             log_probs=log_probs
         )
-        # buffer.print_attributes()
-        # buffer.print_buffer()
-        # batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
-
-        # you can also store single agent transition if needed
-        # dummy_single_agent_transition = {
-        #     "global_state": global_state,
-        #     "observation": observation[0],
-        #     "action": action[0],
-        #     "reward": reward[0],
-        #     "next_observation": new_observation[0],
-        #     "done": terminated,
-        #     "hidden_state": dummy_hidden_state[0]
-        # }
-
-        # buffer.store_single_agent_transition(
-        #     agent_index=0,
-        #     global_state=dummy_single_agent_transition["global_state"],
-        #     observation=dummy_single_agent_transition["observation"],
-        #     action=dummy_single_agent_transition["action"],
-        #     reward=dummy_single_agent_transition["reward"],
-        #     next_observation=dummy_single_agent_transition["next_observation"],
-        #     done=dummy_single_agent_transition["done"],
-        #     hidden_state=dummy_single_agent_transition["hidden_state"]
-        # )
-
-        # to check if batching is working:
-        # print("actions of Sampled batch for agent 0:", batch[5] if batch is not None else "No batch sampled")
-        # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
-
         ep_return.append(reward)
 
             
@@ -149,17 +118,19 @@ def run_environment(args):
     # set up looping through iters
     agent_factory = AgentFactory()
     plotter = LiveLossPlotter()
+    env = gym.make("rware-tiny-2ag-v2")
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=16)
     for iteration in range(ITERS):
+        start_time = time.time()
         print(f"Iteration {iteration + 1}/{ITERS}")
         # add iteration to args
-        env = gym.make("rware-tiny-2ag-v2")
-        agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=16)
         # agent = 0
         # make_data_folder(agent.path)
         
         # Training phase
         # print(f"Training {agent.agentName} agent...")
         returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_TRAIN_EPISODES, plotter, mode='train')
+        print("Training time for iteration", iteration + 1, ":", time.time() - start_time, "seconds")
         
         # Testing phase
         # print(f"Testing {agent.agentName} agent...")
