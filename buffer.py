@@ -123,9 +123,10 @@ class Buffer:
         rewards_to_go = np.zeros((len(start_idxs), window_size))
 
         for b, start_idx in enumerate(start_idxs):
-            idx = start_idx + window_size
+            idx = start_idx + window_size - 1
             last_timestep_rewards_to_go = 0
             # Get rewards to go of last timestep in window, to later calculate previous ones
+            # print("Index at end of window:", idx)
             while self.dones[idx, 0] != True:
                 all_agents_rewards = np.sum(self.rewards[idx])
                 last_timestep_rewards_to_go += all_agents_rewards * discount_factor ** (idx - start_idx - window_size)
@@ -194,8 +195,12 @@ class Buffer:
             for b, start_index in enumerate(batch_starts):
                 # start_index = np.random.choice(valid_starts)
                 window = [(start_index + i) % self.size for i in range(window_size)]
+                if window[0] > 99990:
+                    print("Sampled start index at very high index:", window[0])
                 batch_indices[b] = window
             start_idxs = [indices[0] for indices in batch_indices]
+            # print(100000 in start_idxs)
+            # print(start_idxs)
 
             batch_data = (self.global_states[batch_indices, agent_index],
                           self.observations[batch_indices, agent_index],
