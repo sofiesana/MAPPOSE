@@ -265,7 +265,8 @@ class MAPPOSE(Agent):
 
                 ## Get Pre-computed Advantages ##
                 advantages_n = torch.zeros((len(start_idxs_n), self.seq_size), dtype=torch.float32).to(self.device)
-                episode_length = buffer.new_episode_indices[0]
+                
+                episode_length = buffer.new_episode_indices[0]+1
                 for i, start_idx in enumerate(start_idxs_n): # Loop over batch of trajectories (start indices)
                     episode_idx = start_idx // episode_length
                     advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
