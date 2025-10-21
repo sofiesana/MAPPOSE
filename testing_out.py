@@ -131,12 +131,12 @@ def run_environment(args):
         print(f"Iteration {iteration + 1}/{ITERS}")
     
         returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
-        print("Training time for iteration", iteration + 1, ":", time.time() - start_time, "seconds")
+    
 
         np.save(f"results/returns_iteration_{iteration}.npy", returns)
         np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
         np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
-        print("time taken:", time.time()-start_time, "seconds")
+        print("Training time for iteration", iteration + 1, ":", time.time() - start_time, "seconds")
     
     env.close()
 
