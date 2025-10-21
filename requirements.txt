@@ -4,3 +4,7 @@ numpy
 pandas
 scikit-learn
 torch
+tensordict
+matplotlib
+ipython
+jupyter
