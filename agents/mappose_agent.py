@@ -309,7 +309,6 @@ class MAPPOSE(Agent):
 
 
 
-
                     shared_clipped_obj, entropies = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, not_n)
                     current_log_probs_agent_n, entropies_agent_n = self.get_prob_action_given_obs(actions_seq_not_n, obs_seq_not_n, self.actor_models_list[n], get_entropy=True)
                     with torch.no_grad():
