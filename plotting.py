@@ -31,3 +31,6 @@ class LiveLossPlotter:
     def close(self):
         plt.ioff()
         plt.show()
+
+    def save(self, filename):
+        self.fig.savefig(filename)

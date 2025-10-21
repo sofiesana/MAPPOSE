@@ -7,10 +7,10 @@ import time
 
 from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
+import os
 
-N_TRAIN_EPISODES = 10
-N_TEST_EPISODES = 3
-N_TRAIN_EPOCHS = 3
+N_COLLECTION_EPISODES = 8
+N_TRAIN_EPOCHS_PER_COLLECTION = 5
 ITERS = 1000
 
 def inspect_environment(env):
@@ -97,20 +97,23 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
         print(f"Episode {ep} | mean return: {reward_sum} | terminated: {bool(terminated)}")
 
     if mode == 'train':
-        # agent.save_rewards()
-        # agent.save_model()
-        for epoch in range(N_TRAIN_EPOCHS):
-            print(f"Training epoch {epoch + 1}/{N_TRAIN_EPOCHS}")
+        all_actor_loss_list = []
+        all_critic_loss = []
+        for epoch in range(N_TRAIN_EPOCHS_PER_COLLECTION):
+            print(f"Training epoch {epoch + 1}/{N_TRAIN_EPOCHS_PER_COLLECTION}")
             actor_loss_list, critic_loss = agent.learn(buffer)
-            # print("Actor 1 loss:", actor_loss_list[0], " ---  Actor 2 loss:", actor_loss_list[1], " ---  Critic loss:", critic_loss)
-            plotter.update(np.mean(actor_loss_list))
+            all_actor_loss_list.extend(actor_loss_list)
+            all_critic_loss.append(critic_loss)
+
+            # plotter.update(np.mean(actor_loss_list))
+            # plotter.save("results/actor_loss_plot_{epoch}.png")
 
         agent.update_prev_actor_models() # Update prev network to current before optimizing current
     elif mode == 'test':
         print(f"Average test return: {np.mean(agent.test_returns)}")
-        # agent.save_test_returns()
 
-    return returns, actor_loss_list, critic_loss
+
+    return returns, all_actor_loss_list, all_critic_loss
 
 
 def run_environment(args):
@@ -135,9 +138,25 @@ def run_environment(args):
         # Testing phase
         # print(f"Testing {agent.agentName} agent...")
         # run_episodes(env, agent, N_TEST_EPISODES, mode='test')
+    # plotter = LiveLossPlotter()
+    env = gym.make("rware-tiny-2ag-v2")
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=16)
+
+    # save returns to file
+    os.mkdir("results") if not os.path.exists("results") else None
+
+    for iteration in range(ITERS):
+        env.reset()
+        print(f"Iteration {iteration + 1}/{ITERS}")
+    
+        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
+
+        np.save(f"results/returns_iteration_{iteration}.npy", returns)
+        np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
+        np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
+    
     env.close()
 
 
 if __name__ == "__main__":
     run_environment(None)
-    # inspect_environment(gym.make("rware-tiny-2ag-v2"))
