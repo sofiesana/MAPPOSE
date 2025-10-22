@@ -9,7 +9,7 @@ from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 import os
 
-N_COLLECTION_EPISODES = 50
+N_COLLECTION_EPISODES = 10
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
 ITERS = 2500
 
@@ -67,8 +67,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
         observation = new_observation
         step_counter += 1
 
-    if mode == 'train':
-        print("Training step...")
+    # if mode == 'train':
+    #     print("Training step...")
         # agent.store_transition(observation, action, reward, new_observation, terminated)
         
     return ep_return, step_counter, terminated
@@ -89,12 +89,16 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
     if mode == 'test':
         agent.set_test_mode()
 
+    pre_collect_time = time.time()
+
     for ep in range(num_episodes):
         print("Running episode ", ep + 1, "/", num_episodes)
         ep_return, _, terminated = run_episode(env, agent, mode, buffer)
         returns.append(ep_return)
         reward_sum = np.sum(ep_return)
         print(f"Episode {ep} | mean return: {reward_sum} | terminated: {bool(terminated)}")
+
+    print("Time to collect episodes:", round(time.time() - pre_collect_time, 4), "seconds")
 
     if mode == 'train':
         all_actor_loss_list = []

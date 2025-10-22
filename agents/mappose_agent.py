@@ -14,7 +14,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.1):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.1, entropy_coeff=0.05):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -33,6 +33,7 @@ class MAPPOSE(Agent):
         self.epsilon = epsilon
         self.beta = beta
         self.seq_size = seq_size
+        self.entropy_coeff = entropy_coeff
 
         # Initialize the state-value networks and their target networks
         self.critic_model = Critic_Network(map_size=state_dim)
@@ -74,24 +75,26 @@ class MAPPOSE(Agent):
         log_prob_list = []
         next_hidden_states = []
 
-        # Convert to tensors
-        obs_list = torch.tensor(np.array(obs_list), dtype=torch.float32).to(self.device)
-        hidden_list = torch.tensor(np.array(hidden_list), dtype=torch.float32).to(self.device)
+        with torch.no_grad():
 
-        for actor, obs, h in zip(self.actor_models_list, obs_list, hidden_list):
-            obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
-            h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
+            # Convert to tensors
+            obs_list = torch.tensor(np.array(obs_list), dtype=torch.float32).to(self.device)
+            hidden_list = torch.tensor(np.array(hidden_list), dtype=torch.float32).to(self.device)
 
-            logits, h_next = actor(obs_input, h_input)
+            for actor, obs, h in zip(self.actor_models_list, obs_list, hidden_list):
+                obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
+                h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
 
-            distribution = torch.distributions.Categorical(logits=logits)
+                logits, h_next = actor(obs_input, h_input)
 
-            action = distribution.sample()
-            log_prob = distribution.log_prob(action)
+                distribution = torch.distributions.Categorical(logits=logits)
 
-            action_list.append(action.item())
-            log_prob_list.append(log_prob.item())
-            next_hidden_states.append(h_next.squeeze().squeeze().detach().cpu().numpy())  # Remove singular dimension, convert to numpy & detach
+                action = distribution.sample()
+                log_prob = distribution.log_prob(action)
+
+                action_list.append(action.item())
+                log_prob_list.append(log_prob.item())
+                next_hidden_states.append(h_next.squeeze().squeeze().detach().cpu().numpy())  # Remove singular dimension, convert to numpy & detach
 
         return action_list, log_prob_list, next_hidden_states
     
@@ -265,8 +268,7 @@ class MAPPOSE(Agent):
 
                 ## Get Pre-computed Advantages ##
                 advantages_n = torch.zeros((len(start_idxs_n), self.seq_size), dtype=torch.float32).to(self.device)
-                
-                episode_length = buffer.new_episode_indices[0]+1
+                episode_length = buffer.new_episode_indices[0] + 1
                 for i, start_idx in enumerate(start_idxs_n): # Loop over batch of trajectories (start indices)
                     episode_idx = start_idx // episode_length
                     advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
@@ -274,7 +276,7 @@ class MAPPOSE(Agent):
                     advantages_n[i] = advantages_traj
 
                 individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, old_log_probs_seq_n, n)
-                individual_loss = -(individual_clipped_obj + entropies)
+                individual_loss = -(individual_clipped_obj + self.entropy_coeff * entropies)  # Combine clipped objective and entropy bonus
 
                 ## Get Shared Experience Loss ##
                 total_shared_loss = 0
@@ -293,7 +295,9 @@ class MAPPOSE(Agent):
 
                         shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, n, return_log_probs=True)
                         shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
-                        shared_loss = -(shared_clipped_obj + entropies_n) * shared_experience_ratio  # TODO I do not know exactly what to do with the entropy part, ill just do it on agent n
+                        shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  # TODO I do not know exactly what to do with the entropy part, ill just do it on agent n
+
+                        print("    Shared Clipped Obj Mean (agent", n, "on agent", not_n, "):", torch.mean(shared_clipped_obj).item(), "Entropy Mean:", torch.mean(entropies_n).item())
 
                         total_shared_loss += shared_loss
 
