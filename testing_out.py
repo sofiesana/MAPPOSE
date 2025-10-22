@@ -67,8 +67,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
         observation = new_observation
         step_counter += 1
 
-    if mode == 'train':
-        print("Training step...")
+    # if mode == 'train':
+    #     print("Training step...")
         # agent.store_transition(observation, action, reward, new_observation, terminated)
         
     return ep_return, step_counter, terminated
