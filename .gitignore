@@ -4,6 +4,7 @@ venv/
 
 *.pyc
 
-# results/
+results/
+models/
 
-# results_monitoring.ipynb
+results_monitoring.ipynb
