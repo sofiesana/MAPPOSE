@@ -4,8 +4,8 @@
 #SBATCH --nodes=1                     # Number of nodes (use 1 node)
 #SBATCH --ntasks=1                    # One task
 #SBATCH --gpus-per-node=v100:1              
-#SBATCH --mem=20GB                     # Total memory for the job (adjust based on need)
-#SBATCH --time=20:00:00              # Time limit for the job (e.g., 2 hours)
+#SBATCH --mem=10GB                     # Total memory for the job (adjust based on need)
+#SBATCH --time=2-00:01:00              # Time limit for the job 
 
 # remove all previously loaded modules
 module purge
@@ -22,7 +22,7 @@ mkdir -p /scratch/s4716671/MARL/run_results
 mkdir -p $TMPDIR
 
 # copy code into TMPDIR
-cp -r /scratch/s4716671/DRL/MAPPOSE $TMPDIR
+cp -r /scratch/s4716671/MARL/MAPPOSE $TMPDIR
 
 tree $TMPDIR
 
@@ -31,7 +31,7 @@ tree $TMPDIR
 cd $TMPDIR/MAPPOSE
 
 # Run training
-python3 testing_out.py
+python3 -u testing_out.py
 
 ############ SAVING:
 # Save results
