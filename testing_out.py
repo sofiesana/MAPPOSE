@@ -11,7 +11,7 @@ import os
 
 N_COLLECTION_EPISODES = 50
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
-ITERS = 1000
+ITERS = 2500
 
 def inspect_environment(env):
     print("Observation space:", env.observation_space)
@@ -143,6 +143,10 @@ def run_environment(args):
         np.save(f"results/returns_iteration_{iteration}.npy", returns)
         np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
         np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
+
+        if (iteration+1) % 500 == 0:
+            agent.save_all_models(f"models/agent_iteration_{iteration}")
+            print(f"Saved models at iteration {iteration}")
 
         np.save("results/_mean_returns.npy", mean_returns)
         np.save("results/_mean_actor_losses.npy", mean_actor_losses)
