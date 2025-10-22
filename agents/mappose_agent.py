@@ -325,5 +325,17 @@ class MAPPOSE(Agent):
             # print("     Time to update one batch:", round(end_batch_time - batch_start_time, 4), "seconds")
 
         return actor_loss_list, critic_loss.item()
+    
+    def save_all_models(self, path):
+        """Save all models to the given path
+        Args:
+            path (str): The path to save the models
+        """
+        os.makedirs(path) if not os.path.exists(path) else None
+        # Save actor models
+        for n in range(self.num_agents):
+            torch.save(self.actor_models_list[n].state_dict(), f"{path}/actor_model_{n}.pth")
 
-
+        # Save critic model
+        torch.save(self.critic_model.state_dict(), f"{path}/critic_model.pth")
+        torch.save(self.critic_model_target.state_dict(), f"{path}/critic_model_target.pth")
