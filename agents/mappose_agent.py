@@ -268,7 +268,7 @@ class MAPPOSE(Agent):
 
                 ## Get Pre-computed Advantages ##
                 advantages_n = torch.zeros((len(start_idxs_n), self.seq_size), dtype=torch.float32).to(self.device)
-                episode_length = buffer.new_episode_indices[0] + 1
+                episode_length = buffer.end_episode_indices[0] + 1
                 for i, start_idx in enumerate(start_idxs_n): # Loop over batch of trajectories (start indices)
                     episode_idx = start_idx // episode_length
                     advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
@@ -296,8 +296,6 @@ class MAPPOSE(Agent):
                         shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, n, return_log_probs=True)
                         shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
                         shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  # TODO I do not know exactly what to do with the entropy part, ill just do it on agent n
-
-                        print("    Shared Clipped Obj Mean (agent", n, "on agent", not_n, "):", torch.mean(shared_clipped_obj).item(), "Entropy Mean:", torch.mean(entropies_n).item())
 
                         total_shared_loss += shared_loss
 

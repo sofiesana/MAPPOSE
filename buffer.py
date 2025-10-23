@@ -13,7 +13,7 @@ class Buffer:
         self.hidden_state_dim = hidden_state_dim
 
         self.current_index = 0
-        self.new_episode_indices = []
+        self.end_episode_indices = []
 
         self.global_states = np.zeros((size, n_agents, *global_state_dim))
         self.observations = np.zeros((size, n_agents, observation_dim))
@@ -44,7 +44,7 @@ class Buffer:
         
         if dones:
             # print("Storing new episode index at:", self.current_index)
-            self.new_episode_indices.append(self.current_index)
+            self.end_episode_indices.append(self.current_index)
 
         if not self.buffer_filled:
             if self.current_index == self.size - 1:
@@ -55,9 +55,9 @@ class Buffer:
         else:
             self.current_index = (self.current_index + 1) % self.size
 
-        if self.current_index in self.new_episode_indices:
+        if self.current_index in self.end_episode_indices:
             # new episode has been overwritten, remove from list
-            self.new_episode_indices.remove(self.current_index)
+            self.end_episode_indices.remove(self.current_index)
 
     def increase_index(self):
         self.current_index = (self.current_index + 1) % self.size
@@ -95,7 +95,7 @@ class Buffer:
             max_index = self.current_index
 
         valid_starts = []
-        # print(" terminal indices:", self.new_episode_indices)
+        # print(" terminal indices:", self.end_episode_indices)
         for start in range(max_index):
             # Build window indices with wrapping
             window = [(start + i) % self.size for i in range(window_size)]
@@ -103,8 +103,8 @@ class Buffer:
             if not self.buffer_filled and (start + window_size > self.current_index):
                 # print("window:", window, "skipped because it exceeds current_index")
                 continue
-            actual_new_episode_indices = [((idx + 1) % self.size) for idx in self.new_episode_indices]
-            if any(idx in actual_new_episode_indices for idx in window[1:]):
+            actual_end_episode_indices = [((idx + 1) % self.size) for idx in self.end_episode_indices]
+            if any(idx in actual_end_episode_indices for idx in window[1:]):
                 # print("window:", window, "skipped because it crosses episode boundary", actual_new_episode_indices)
                 continue
             valid_starts.append(start)
@@ -223,7 +223,7 @@ class Buffer:
         """
 
         # Find the terminal timestep for this episode
-        terminal_idx = min([idx for idx in self.new_episode_indices if idx >= start_idx])
+        terminal_idx = min([idx for idx in self.end_episode_indices if idx >= start_idx])
         timesteps = list(range(start_idx, terminal_idx + 1))
 
         rewards = []
@@ -254,13 +254,21 @@ class Buffer:
         return rewards, states, next_states, dones #, terminal_idx
     
     def get_all_states_and_summed_rewards(self):
-        states_list_across_episodes = np.zeros((len(self.new_episode_indices), self.new_episode_indices[0]+1, self.global_state_dim[0])) # Shape: (num_episodes, max_episode_length, global_state_dim)
-        rewards_list_across_episodes = np.zeros((len(self.new_episode_indices), self.new_episode_indices[0]+1)) # Shape: (num_episodes, max_episode_length)
+        states_list_across_episodes = np.zeros((len(self.end_episode_indices), self.end_episode_indices[0]+1, self.global_state_dim[0])) # Shape: (num_episodes, max_episode_length, global_state_dim)
+        rewards_list_across_episodes = np.zeros((len(self.end_episode_indices), self.end_episode_indices[0]+1)) # Shape: (num_episodes, max_episode_length)
 
-        for e, start_idx in enumerate(self.new_episode_indices):
-            rewards, states, _, _ = self.get_timestep_state_and_rewards(start_idx)
-            states_list_across_episodes[e, :len(states), :] = np.array(states)
-            rewards_list_across_episodes[e, :len(rewards)] = np.array(rewards)
+        start_idx = 0
+        for e, episode_end_idx in enumerate(self.end_episode_indices):
+            # rewards, states, _, _ = self.get_timestep_state_and_rewards(start_idx)
+            rewards_sum = np.sum(self.rewards[start_idx:episode_end_idx+1], axis=1)
+            states = self.global_states[start_idx:episode_end_idx+1, 0, :]
+
+            print("Rewards Shape:", np.array(rewards_sum).shape, "States Shape:", states.shape)
+
+            states_list_across_episodes[e, :len(states), :] = states
+            rewards_list_across_episodes[e, :len(rewards_sum)] = rewards_sum
+
+            start_idx = episode_end_idx + 1
 
         return states_list_across_episodes, rewards_list_across_episodes
 
