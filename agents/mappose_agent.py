@@ -275,6 +275,10 @@ class MAPPOSE(Agent):
                     advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
                     advantages_n[i] = advantages_traj
 
+                # print(f"Agent {n} advantages mean: {advantages_n.mean().item():.6f}, std: {advantages_n.std().item():.6f}")
+                advantages_n = (advantages_n - advantages_n.mean()) / (advantages_n.std() + 1e-8)
+
+
                 individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, old_log_probs_seq_n, n)
                 individual_loss = -(individual_clipped_obj + self.entropy_coeff * entropies)  # Combine clipped objective and entropy bonus
 
@@ -292,6 +296,10 @@ class MAPPOSE(Agent):
                             advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
                             advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
                             advantages_not_n[i] = advantages_traj
+
+                        advantages_not_n = (advantages_not_n - advantages_not_n.mean()) / (advantages_not_n.std() + 1e-8)
+
+                        
 
                         shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, n, return_log_probs=True)
                         shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
