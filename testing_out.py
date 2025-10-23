@@ -3,12 +3,15 @@ import rware
 import numpy as np
 from util import get_full_state
 from buffer import Buffer
+import time
 
 from agents.agent_factory import AgentFactory
+from plotting import LiveLossPlotter
+import os
 
-N_TRAIN_EPISODES = 10
-N_TEST_EPISODES = 3
-ITERS = 1
+N_COLLECTION_EPISODES = 10
+N_TRAIN_EPOCHS_PER_COLLECTION = 3
+ITERS = 2500
 
 def inspect_environment(env):
     print("Observation space:", env.observation_space)
@@ -26,9 +29,6 @@ def inspect_environment(env):
         print(obs)
 
 
-
-
-
 def run_episode(env, agent, mode, buffer: Buffer):
     """Run a single episode and return the episode return"""
 
@@ -41,13 +41,11 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
     while not episode_ended:
-        env.render()
-        # pause until key press
-        # input("Press Enter to continue...")
+        # env.render()
 
         action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
         # action = env.action_space.sample()  # Random action for placeholder
-        
+
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
         
@@ -56,40 +54,10 @@ def run_episode(env, agent, mode, buffer: Buffer):
             observations=observation,
             actions=action,
             rewards=reward,
-            next_observations=new_observation,
             dones=terminated,
-            hidden_states=hidden_states
+            hidden_states=hidden_states,
+            log_probs=log_probs
         )
-        # buffer.print_attributes()
-        # buffer.print_buffer()
-        # batch = buffer.sample_agent_batch(agent_index=0, batch_size=10, window_size=5)
-
-        # you can also store single agent transition if needed
-        # dummy_single_agent_transition = {
-        #     "global_state": global_state,
-        #     "observation": observation[0],
-        #     "action": action[0],
-        #     "reward": reward[0],
-        #     "next_observation": new_observation[0],
-        #     "done": terminated,
-        #     "hidden_state": dummy_hidden_state[0]
-        # }
-
-        # buffer.store_single_agent_transition(
-        #     agent_index=0,
-        #     global_state=dummy_single_agent_transition["global_state"],
-        #     observation=dummy_single_agent_transition["observation"],
-        #     action=dummy_single_agent_transition["action"],
-        #     reward=dummy_single_agent_transition["reward"],
-        #     next_observation=dummy_single_agent_transition["next_observation"],
-        #     done=dummy_single_agent_transition["done"],
-        #     hidden_state=dummy_single_agent_transition["hidden_state"]
-        # )
-
-        # to check if batching is working:
-        # print("actions of Sampled batch for agent 0:", batch[5] if batch is not None else "No batch sampled")
-        # print("Sampled batch for agent 0:", batch if batch is not None else "No batch sampled")
-
         ep_return.append(reward)
 
             
@@ -99,14 +67,13 @@ def run_episode(env, agent, mode, buffer: Buffer):
         observation = new_observation
         step_counter += 1
 
-    if mode == 'train':
-        print("Training step...")
+    # if mode == 'train':
+    #     print("Training step...")
         # agent.store_transition(observation, action, reward, new_observation, terminated)
-        agent.learn(buffer)
         
     return ep_return, step_counter, terminated
 
-def run_episodes(env, agent, num_episodes, mode='train'):
+def run_episodes(env, agent, num_episodes, plotter, mode='train'):
     """Run multiple episodes and store the returns. If testing, no learning occurs."""
 
     returns = []
@@ -115,56 +82,83 @@ def run_episodes(env, agent, num_episodes, mode='train'):
     n_agents = len(env.observation_space)
     observation_dim = env.observation_space[0].shape[0]
     hidden_state_dim = 128  # example hidden state dimension for RNN
-    buffer = Buffer(size=1000, n_agents=n_agents, global_state_dim=global_state_dim,
+    buffer = Buffer(size=100000, n_agents=n_agents, global_state_dim=global_state_dim,
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     # buffer.print_attributes()
 
     if mode == 'test':
         agent.set_test_mode()
 
+    pre_collect_time = time.time()
+
     for ep in range(num_episodes):
         print("Running episode ", ep + 1, "/", num_episodes)
         ep_return, _, terminated = run_episode(env, agent, mode, buffer)
         returns.append(ep_return)
-        # if mode == 'train':
-        #     agent.store_return(ep_return)
-        # elif mode == 'test':
-        #     agent.store_test_return(ep_return)
         reward_sum = np.sum(ep_return)
         print(f"Episode {ep} | mean return: {reward_sum} | terminated: {bool(terminated)}")
 
+    print("Time to collect episodes:", round(time.time() - pre_collect_time, 4), "seconds")
+
     if mode == 'train':
-        agent.save_rewards()
-        agent.save_model()
+        all_actor_loss_list = []
+        all_critic_loss = []
+        for epoch in range(N_TRAIN_EPOCHS_PER_COLLECTION):
+            print(f"Training epoch {epoch + 1}/{N_TRAIN_EPOCHS_PER_COLLECTION}")
+            actor_loss_list, critic_loss = agent.learn(buffer)
+            all_actor_loss_list.extend(actor_loss_list)
+            all_critic_loss.append(critic_loss)
+
+            # plotter.update(np.mean(actor_loss_list))
+            # plotter.save("results/actor_loss_plot_{epoch}.png")
+
+        agent.update_prev_actor_models() # Update prev network to current before optimizing current
     elif mode == 'test':
         print(f"Average test return: {np.mean(agent.test_returns)}")
-        agent.save_test_returns()
 
-    return returns
+
+    return returns, all_actor_loss_list, all_critic_loss
 
 
 def run_environment(args):
     """Main function to set up and run the environment with the specified agent"""
     # set up looping through iters
     agent_factory = AgentFactory()
+    plotter = LiveLossPlotter()
+    env = gym.make("rware-tiny-2ag-v2")
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=1024)
+    os.mkdir("results") if not os.path.exists("results") else None
+
+    mean_returns = np.zeros(ITERS)
+    mean_actor_losses = np.zeros(ITERS)
+    mean_critic_losses = np.zeros(ITERS)
+
     for iteration in range(ITERS):
+        start_time = time.time()
+        env.reset()
         print(f"Iteration {iteration + 1}/{ITERS}")
-        # add iteration to args
-        env = gym.make("rware-tiny-2ag-v2")
-        agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=4)
-        # agent = 0
-        # make_data_folder(agent.path)
-        
-        # Training phase
-        # print(f"Training {agent.agentName} agent...")
-        run_episodes(env, agent, N_TRAIN_EPISODES, mode='train')
-        
-        # Testing phase
-        # print(f"Testing {agent.agentName} agent...")
-        # run_episodes(env, agent, N_TEST_EPISODES, mode='test')
+    
+        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
+
+        mean_returns[iteration] = np.mean(returns)
+        mean_actor_losses[iteration] = np.mean(actor_loss_list)
+        mean_critic_losses[iteration] = np.mean(critic_loss)
+
+        np.save(f"results/returns_iteration_{iteration}.npy", returns)
+        np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
+        np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
+
+        if (iteration+1) % 500 == 0:
+            agent.save_all_models(f"models/agent_iteration_{iteration}")
+            print(f"Saved models at iteration {iteration}")
+
+        np.save("results/_mean_returns.npy", mean_returns)
+        np.save("results/_mean_actor_losses.npy", mean_actor_losses)
+        np.save("results/_mean_critic_losses.npy", mean_critic_losses)
+        print("Training time for iteration", iteration + 1, ":", time.time() - start_time, "seconds")
+    
     env.close()
 
 
 if __name__ == "__main__":
     run_environment(None)
-    # inspect_environment(gym.make("rware-tiny-2ag-v2"))
