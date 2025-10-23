@@ -144,11 +144,11 @@ def run_environment(args):
         mean_actor_losses[iteration] = np.mean(actor_loss_list)
         mean_critic_losses[iteration] = np.mean(critic_loss)
 
-        np.save(f"results/returns_iteration_{iteration}.npy", returns)
-        np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
-        np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
+        # np.save(f"results/returns_iteration_{iteration}.npy", returns)
+        # np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
+        # np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
 
-        if (iteration+1) % 500 == 0:
+        if (iteration+1) % 250 == 0:
             agent.save_all_models(f"models/agent_iteration_{iteration}")
             print(f"Saved models at iteration {iteration}")
 
