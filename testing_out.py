@@ -11,7 +11,7 @@ import os
 
 N_COLLECTION_EPISODES = 10
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
-ITERS = 2500
+ITERS = 1000
 
 def inspect_environment(env):
     print("Observation space:", env.observation_space)
