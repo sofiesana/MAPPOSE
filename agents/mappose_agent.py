@@ -276,7 +276,7 @@ class MAPPOSE(Agent):
                     advantages_n[i] = advantages_traj
 
                 # print(f"Agent {n} advantages mean: {advantages_n.mean().item():.6f}, std: {advantages_n.std().item():.6f}")
-                advantages_n = (advantages_n - advantages_n.mean()) / (advantages_n.std() + 1e-8)
+                # advantages_n = (advantages_n - advantages_n.mean()) / (advantages_n.std() + 1e-8)
 
 
                 individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, old_log_probs_seq_n, n)
@@ -297,7 +297,7 @@ class MAPPOSE(Agent):
                             advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
                             advantages_not_n[i] = advantages_traj
 
-                        advantages_not_n = (advantages_not_n - advantages_not_n.mean()) / (advantages_not_n.std() + 1e-8)
+                        # advantages_not_n = (advantages_not_n - advantages_not_n.mean()) / (advantages_not_n.std() + 1e-8)
 
                         
 
