@@ -348,4 +348,4 @@ class MAPPOSE(Agent):
 
         # Save critic model
         torch.save(self.critic_model.state_dict(), f"{path}/critic_model.pth")
-        torch.save(self.critic_model_target.state_dict(), f"{path}/critic_model_target.pth")
+        
