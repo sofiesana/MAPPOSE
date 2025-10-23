@@ -71,7 +71,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
     #     print("Training step...")
         # agent.store_transition(observation, action, reward, new_observation, terminated)
         
-    return ep_return, step_counter, terminated
+    return np.sum(ep_return), step_counter, terminated
 
 def run_episodes(env, agent, num_episodes, plotter, mode='train'):
     """Run multiple episodes and store the returns. If testing, no learning occurs."""
