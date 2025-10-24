@@ -15,7 +15,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=128, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -54,7 +54,6 @@ class MAPPOSE(Agent):
 
         self.optimizer_critic = optim.Adam(self.critic_model.parameters(), lr=self.learning_rate)
         self.optimizers_actor_list = [optim.Adam(actor_model.parameters(), lr=self.learning_rate) for actor_model in self.actor_models_list]
-
 
     def update_prev_actor_models(self):
         """Change the previous actor models
@@ -248,19 +247,6 @@ class MAPPOSE(Agent):
             advantages_list_over_episodes.append(advantages)
             values_list_over_episodes.append(values)
 
-        ## Plot advantages of each timestep 
-        # for ep_idx, advantages in enumerate(advantages_list_over_episodes):
-        #     plt.figure()
-        #     plt.plot(advantages.cpu().numpy())
-        #     plt.title(f'Advantages for Episode {ep_idx}')
-        #     plt.xlabel('Timestep')
-        #     plt.ylabel('Advantage')
-        #     plt.grid()
-        #     plt.show()
-            # plt.savefig(f'advantages_episode_{ep_idx}.png')
-            # plt.close()
-        
-
         return advantages_list_over_episodes, values_list_over_episodes
 
 
@@ -277,7 +263,7 @@ class MAPPOSE(Agent):
 
         agent_batches_list = []
         for n in range(self.num_agents):
-            agent_batches_list.append(buffer.get_all_agent_batches(n, self.batch_size, window_size=self.seq_size))
+            agent_batches_list.append(buffer.get_all_agent_batches(n, self.batch_size, window_size=self.seq_size, non_overlapping=True))
         
         advantages_over_episodes, _ = self.compute_all_GAEs(buffer, self.critic_model) # Shape: [num_episodes, episode_length]
 

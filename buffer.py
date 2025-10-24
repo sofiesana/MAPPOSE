@@ -152,22 +152,36 @@ class Buffer:
                 self.hidden_states[batch_indices, agent_index],
                 self.old_log_probs[batch_indices, agent_index], start_idxs)
     
-    def get_all_agent_batches(self, agent_index, batch_size, window_size=10):
+    def get_all_agent_batches(self, agent_index, batch_size, window_size=10, non_overlapping=True):
         if window_size > self.size:
             raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
         if not self.buffer_filled and self.current_index < window_size:
             print("Not enough samples in buffer yet to sample the requested batch size.")
             return None
         all_batches = []
-        valid_starts = self.get_valid_start_indices_for_window(window_size)
-        valid_starts = np.array(valid_starts)
+        if non_overlapping:
+            valid_starts = list(range(0, self.end_episode_indices[-1]+1, window_size))
+        else:
+            valid_starts = self.get_valid_start_indices_for_window(window_size)
+        # Shuffle start indices
         rng = np.random.default_rng()
         rng.shuffle(valid_starts)
         for j in range(0, len(valid_starts), batch_size):
             batch_starts = valid_starts[j:j+batch_size]
-            offsets = np.arange(window_size)
-            batch_indices = (batch_starts[:, None] + offsets) % self.size
-            start_idxs = batch_starts.tolist()
+            batch_indices = np.zeros((len(batch_starts), window_size), dtype=int)
+
+            for b, start_index in enumerate(batch_starts):
+                # start_index = np.random.choice(valid_starts)
+                if non_overlapping:
+                    window = list(range(start_index, start_index + window_size))
+                    batch_indices[b] = window
+                else:
+                    window = [(start_index + i) % self.size for i in range(window_size)]
+                    if window[0] > 99990:
+                        print("Sampled start index at very high index:", window[0])
+                    batch_indices[b] = window
+            start_idxs = [indices[0] for indices in batch_indices]
+
             batch_data = (self.global_states[batch_indices, agent_index],
                           self.observations[batch_indices, agent_index],
                           self.actions[batch_indices, agent_index],
