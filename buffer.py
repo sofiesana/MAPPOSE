@@ -121,26 +121,28 @@ class Buffer:
             start_idx (List): list of starting index of the window
             discount_factor (float, optional): discount factor. Defaults to 0.99.
         """
-        rewards_to_go = np.zeros((len(start_idxs), window_size))
+        rewards_to_go_array = np.zeros((len(start_idxs), window_size))
 
+        # Calculate rewards to go
         for b, start_idx in enumerate(start_idxs):
-            idx = start_idx + window_size - 1
+            our_terminal_idx = None
+            for terminal_idx in self.end_episode_indices:
+                if terminal_idx >= start_idx:
+                    our_terminal_idx = terminal_idx
+                    break
+
+            total_sequence_length = our_terminal_idx - start_idx + 1
             last_timestep_rewards_to_go = 0
-            # Get rewards to go of last timestep in window, to later calculate previous ones
-            # print("Index at end of window:", idx)
-            while self.dones[idx, 0] != True:
+            for t in reversed(range(total_sequence_length)):
+                idx = start_idx + t
                 all_agents_rewards = np.sum(self.rewards[idx])
-                last_timestep_rewards_to_go += all_agents_rewards * discount_factor ** (idx - start_idx - window_size)
-                idx = idx + 1
+                rewards_to_go = all_agents_rewards + discount_factor * last_timestep_rewards_to_go
+                if t < window_size:
+                    # print("Rewards to go at buffer index", idx, "for batch", b, "timestep", t, "is:", rewards_to_go)
+                    rewards_to_go_array[b, t] = rewards_to_go
+                last_timestep_rewards_to_go = rewards_to_go
 
-            # Calculate rewards to go backwards
-            for t in reversed(range(window_size)):
-                idx = (start_idx + t)
-                all_agents_rewards = np.sum(self.rewards[idx])
-                rewards_to_go[b, t] = all_agents_rewards + discount_factor * last_timestep_rewards_to_go
-                last_timestep_rewards_to_go = rewards_to_go[b, t]
-
-        return rewards_to_go
+        return rewards_to_go_array
 
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
@@ -260,8 +262,6 @@ class Buffer:
             # rewards, states, _, _ = self.get_timestep_state_and_rewards(start_idx)
             rewards_sum = np.sum(self.rewards[start_idx:episode_end_idx+1], axis=1)
             states = self.global_states[start_idx:episode_end_idx+1, 0, :]
-
-            print("Rewards Shape:", np.array(rewards_sum).shape, "States Shape:", states.shape)
 
             states_list_across_episodes[e, :len(states), :] = states
             rewards_list_across_episodes[e, :len(rewards_sum)] = rewards_sum

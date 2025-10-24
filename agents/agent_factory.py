@@ -11,7 +11,7 @@ class AgentFactory:
     """
 
     @staticmethod
-    def create_agent(agent_type: str, env, batch_size: int, lr=0.0001, discount_factor=0.99) -> Agent:
+    def create_agent(agent_type: str, env, batch_size: int, lr=0.0005, discount_factor=0.99) -> Agent:
         """
         Factory method for Agent creation.
         :param env: gymnasium environment.
