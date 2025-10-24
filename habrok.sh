@@ -16,7 +16,7 @@ module load Python/3.11.5-GCCcore-13.2.0
 # activate virtual environment
 source $HOME/venvs/mappose/bin/activate
 
-mkdir -p /scratch/s4716671/MARL/run_results
+mkdir -p /scratch/s4716671/MARL/run_results/$SLURM_JOB_ID
 
 ############ GETTING THE CODE
 mkdir -p $TMPDIR
@@ -35,4 +35,4 @@ python3 -u testing_out.py
 
 ############ SAVING:
 # Save results
-cp -r $TMPDIR/MAPPOSE/results /scratch/s4716671/MARL/run_results
+cp -r $TMPDIR/MAPPOSE/results /scratch/s4716671/MARL/run_results/$SLURM_JOB_ID/results
