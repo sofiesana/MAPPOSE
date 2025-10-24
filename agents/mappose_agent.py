@@ -15,7 +15,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.1, entropy_coeff=0.005):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -170,6 +170,8 @@ class MAPPOSE(Agent):
         if old_log_probs is None:
             with torch.no_grad():
                 old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx], h_init=hidden_states)
+        else:
+            old_log_probs = old_log_probs.detach()
 
         policy_ratio = torch.exp(current_log_probs - old_log_probs)
 
@@ -300,27 +302,28 @@ class MAPPOSE(Agent):
 
                 ## Get Shared Experience Loss ##
                 total_shared_loss = 0
-                for not_n in range(self.num_agents):
-                    if not_n != n: # For each other agent
-                        states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n, start_idxs_not_n = agent_batches_list[not_n][batch_idx]
-                        states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n = self.convert_sample_to_tensor([states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n], dtype=torch.float32)
+                # for not_n in range(self.num_agents):
+                #     if not_n != n: # For each other agent
+                #         states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n, start_idxs_not_n = agent_batches_list[not_n][batch_idx]
+                #         states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n = self.convert_sample_to_tensor([states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n], dtype=torch.float32)
 
-                        ## Get Pre-computed Advantages for other agent ##
-                        advantages_not_n = torch.zeros((len(start_idxs_not_n), self.seq_size), dtype=torch.float32).to(self.device)
-                        for i, start_idx in enumerate(start_idxs_not_n): # Loop over batch of trajectories for agent not_n
-                            episode_idx = start_idx // episode_length
-                            advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
-                            advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
-                            advantages_not_n[i] = advantages_traj
+                #         ## Get Pre-computed Advantages for other agent ##
+                #         advantages_not_n = torch.zeros((len(start_idxs_not_n), self.seq_size), dtype=torch.float32).to(self.device)
+                #         for i, start_idx in enumerate(start_idxs_not_n): # Loop over batch of trajectories for agent not_n
+                #             episode_idx = start_idx // episode_length
+                #             advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
+                #             advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
+                #             advantages_not_n[i] = advantages_traj
 
-                        shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, None, n, return_log_probs=True)
-                        shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
-                        shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  
+                #         shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, None, n, return_log_probs=True)
+                #         shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
+                #         shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  
 
-                        total_shared_loss += shared_loss
+                #         total_shared_loss += shared_loss
 
-                mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
-                total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
+                # mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
+                # total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
+                total_actor_loss = torch.mean(individual_loss)
                 actor_loss_list.append(total_actor_loss.item())
 
                 # Optimize policy network
@@ -331,7 +334,9 @@ class MAPPOSE(Agent):
 
 
             ### Update Critic Network ###
-            reward_to_go_not_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_not_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
+            # reward_to_go_not_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_not_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
+            reward_to_go_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
+            reward_to_go_not_n = reward_to_go_n  # Using same rewards for all agents
             values_seq = self.critic_model(states).squeeze(-1)
             critic_loss = F.mse_loss(values_seq, reward_to_go_not_n)
 
