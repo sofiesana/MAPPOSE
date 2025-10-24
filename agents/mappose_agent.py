@@ -15,7 +15,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.1, entropy_coeff=0.005):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=128, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -54,7 +54,6 @@ class MAPPOSE(Agent):
 
         self.optimizer_critic = optim.Adam(self.critic_model.parameters(), lr=self.learning_rate)
         self.optimizers_actor_list = [optim.Adam(actor_model.parameters(), lr=self.learning_rate) for actor_model in self.actor_models_list]
-
 
     def update_prev_actor_models(self):
         """Change the previous actor models
@@ -168,6 +167,8 @@ class MAPPOSE(Agent):
         if old_log_probs is None:
             with torch.no_grad():
                 old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx], h_init=hidden_states)
+        else:
+            old_log_probs = old_log_probs.detach()
 
         policy_ratio = torch.exp(current_log_probs - old_log_probs)
 
@@ -243,19 +244,6 @@ class MAPPOSE(Agent):
 
             advantages_list_over_episodes.append(advantages)
             values_list_over_episodes.append(values)
-
-        ## Plot advantages of each timestep 
-        # for ep_idx, advantages in enumerate(advantages_list_over_episodes):
-        #     plt.figure()
-        #     plt.plot(advantages.cpu().numpy())
-        #     plt.title(f'Advantages for Episode {ep_idx}')
-        #     plt.xlabel('Timestep')
-        #     plt.ylabel('Advantage')
-        #     plt.grid()
-        #     plt.show()
-            # plt.savefig(f'advantages_episode_{ep_idx}.png')
-            # plt.close()
-        
 
         return advantages_list_over_episodes, values_list_over_episodes
 
