@@ -10,8 +10,8 @@ from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 import os
 
-N_COLLECTION_EPISODES = 2
-N_TRAIN_EPOCHS_PER_COLLECTION = 3
+N_COLLECTION_EPISODES = 10
+N_TRAIN_EPOCHS_PER_COLLECTION = 1
 ITERS = 1000
 
 def inspect_environment(env):
@@ -44,7 +44,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
     while not episode_ended:
         # env.render()
 
-        action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
+        action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
+        # action, log_probs, new_hidden_states = agent.choose_random_action()
         # action = env.action_space.sample()  # Random action for placeholder
 
         new_observation, reward, terminated, truncated, info = env.step(action)
@@ -66,6 +67,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
             episode_ended = True
             
         observation = new_observation
+        hidden_states = new_hidden_states
         step_counter += 1
 
     # if mode == 'train':
@@ -129,7 +131,7 @@ def run_environment(args):
     """Main function to set up and run the environment with the specified agent"""
     # set up looping through iters
     agent_factory = AgentFactory()
-    plotter = LiveLossPlotter()
+    # plotter = LiveLossPlotter()
     env = gym.make("rware-tiny-2ag-v2")
     agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=512)
     os.mkdir("results") if not os.path.exists("results") else None
@@ -144,7 +146,7 @@ def run_environment(args):
         print(f"Iteration {iteration + 1}/{ITERS}")
     
         returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
-        plotter.update(np.mean(actor_loss_list))
+        # plotter.update(np.mean(actor_loss_list))
 
         mean_returns[iteration] = np.mean(returns)
         mean_actor_losses[iteration] = np.mean(actor_loss_list)

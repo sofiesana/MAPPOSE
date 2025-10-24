@@ -8,6 +8,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import copy
 import time
+import matplotlib.pyplot as plt
 
 from agents.agent import Agent
 from buffer import Buffer
@@ -106,7 +107,7 @@ class MAPPOSE(Agent):
 
         action_list = np.random.randint(low=0, high=self.n_actions, size=self.num_agents)
         
-        return action_list
+        return action_list, np.zeros(2), None
     
     def get_prob_action_given_obs(self, action_seq, obs_seq, policy, h_init=None, get_entropy=False):
         """Get the probabilty of taking action in action_list given being obs using given policy
@@ -121,6 +122,7 @@ class MAPPOSE(Agent):
         logits, _ = policy(obs_seq, h_init)
         distribution = torch.distributions.Categorical(logits=logits)
 
+        action_seq = action_seq.long()
         log_probs_list = distribution.log_prob(action_seq) # Does network output whole sequence probs or just last one?
 
         if get_entropy:
@@ -160,12 +162,7 @@ class MAPPOSE(Agent):
         if hidden_states is not None:
             hidden_states = hidden_states.permute(1, 0, 2)  # Change to (num_layers, batch_size, hidden_size)
             hidden_states = hidden_states[0, :, :].unsqueeze(dim=0)  # Only use first timestep in sequence
-        obs_seq = obs_seq.permute(0, 1, 2)  # Change to (batch_size, seq_len, obs_dim)
-        # actions_seq = actions_seq.permute(1, 0)  # Change to (batch_size, seq_len)
-
-        # print("Hidden states shape:", hidden_states.shape)
-        # print("Obs seq shape:", obs_seq.shape)
-        # print("Actions seq shape:", actions_seq.shape)
+            hidden_states = hidden_states.detach() # Detach from computation graph
 
         current_log_probs, entropies = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_models_list[agent_idx], h_init=hidden_states, get_entropy=True)
         if old_log_probs is None:
@@ -173,8 +170,6 @@ class MAPPOSE(Agent):
                 old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx], h_init=hidden_states)
 
         policy_ratio = torch.exp(current_log_probs - old_log_probs)
-
-        # print("Policy ratio shape:", policy_ratio.shape, "Advantages shape:", advantages.shape)
 
         individual_clipped_obj = torch.min(policy_ratio * advantages, policy_ratio.clamp(1.0 - self.epsilon, 1.0 + self.epsilon) * advantages)
 
@@ -212,7 +207,7 @@ class MAPPOSE(Agent):
 
         return advantages[:self.seq_size]
     
-    def compute_all_GAEs(self, buffer: Buffer, critic_model, gamma=0.99, lamda=0.95):
+    def compute_all_GAEs(self, buffer: Buffer, critic_model, gamma=0.99, lamda=0.99):
         """Compute GAE advantages for all trajectories in the buffer
         Args:
             - buffer: buffer containing all transitions
@@ -249,6 +244,19 @@ class MAPPOSE(Agent):
             advantages_list_over_episodes.append(advantages)
             values_list_over_episodes.append(values)
 
+        ## Plot advantages of each timestep 
+        # for ep_idx, advantages in enumerate(advantages_list_over_episodes):
+        #     plt.figure()
+        #     plt.plot(advantages.cpu().numpy())
+        #     plt.title(f'Advantages for Episode {ep_idx}')
+        #     plt.xlabel('Timestep')
+        #     plt.ylabel('Advantage')
+        #     plt.grid()
+        #     plt.show()
+            # plt.savefig(f'advantages_episode_{ep_idx}.png')
+            # plt.close()
+        
+
         return advantages_list_over_episodes, values_list_over_episodes
 
 
@@ -271,7 +279,6 @@ class MAPPOSE(Agent):
 
         for batch_idx in range(len(agent_batches_list[0])):  # For each batch
             ### Update Actor Networks ###
-            # batch_start_time = time.time()
             for n in range(self.num_agents):
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n, start_idxs_n = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n = self.convert_sample_to_tensor([states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n], dtype=torch.float32)
@@ -324,7 +331,6 @@ class MAPPOSE(Agent):
             reward_to_go_not_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_not_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
             values_seq = self.critic_model(states).squeeze(-1)
             critic_loss = F.mse_loss(values_seq, reward_to_go_not_n)
-
 
             # Optimize critic network
             self.optimizer_critic.zero_grad()
