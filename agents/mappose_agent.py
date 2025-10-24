@@ -15,7 +15,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=128, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=10, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -194,6 +194,7 @@ class MAPPOSE(Agent):
         with torch.no_grad():
             value_t = critic_model(states).squeeze(-1)
             value_t_plus_1 = critic_model(next_states).squeeze(-1)
+        print("??????? Values shape:", value_t.shape, value_t_plus_1.shape)
 
         # Zero next_value where terminal
         value_t_plus_1 = value_t_plus_1 * (1.0 - dones)
@@ -211,7 +212,7 @@ class MAPPOSE(Agent):
         return advantages[:self.seq_size]
     
     def compute_all_GAEs(self, buffer: Buffer, critic_model, gamma=0.99, lamda=0.99):
-        """Compute GAE advantages for all trajectories in the buffer
+        """Compute GAE advantages for all trajectories in the buffer, using dones to mask episode ends
         Args:
             - buffer: buffer containing all transitions
             - critic_model: critic network to use for value estimation
@@ -219,14 +220,22 @@ class MAPPOSE(Agent):
             - advantages: tensor of advantages for all transitions
         """
 
-        states_list, rewards_sum_list = buffer.get_all_states_and_summed_rewards() # Shape: (num_episodes, max_episode_length, state_dim), (num_episodes, max_episode_length)
+        states_list, rewards_sum_list = buffer.get_all_states_and_summed_rewards() # (num_episodes, max_episode_length, state_dim), (num_episodes, max_episode_length)
+        dones_list = []
+        # Collect dones for each episode
+        start_idx = 0
+        for episode_end_idx in buffer.end_episode_indices:
+            episode_dones = buffer.dones[start_idx:episode_end_idx+1, 0]  # shape: (episode_length,)
+            dones_list.append(torch.tensor(episode_dones, dtype=torch.float32, device=self.device))
+            start_idx = episode_end_idx + 1
+
         states_tensor, rewards_sum_tensor = self.convert_sample_to_tensor([states_list, rewards_sum_list])
 
         advantages_list_over_episodes = []
         values_list_over_episodes = []
 
         # Loop over each episode
-        for states, rewards_sums in zip(states_tensor, rewards_sum_tensor):
+        for ep_idx, (states, rewards_sums, dones) in enumerate(zip(states_tensor, rewards_sum_tensor, dones_list)):
             with torch.no_grad():
                 values = critic_model(states).squeeze(-1)
 
@@ -234,14 +243,15 @@ class MAPPOSE(Agent):
             bootstrap_value = torch.tensor([0.0], device=values.device)
             values_b = torch.cat([values, bootstrap_value])
 
-            # Compute deltas
-            deltas = (rewards_sums + (gamma * values_b[1:])) - values_b[:-1]
+            # Compute deltas, zero next value if done
+            next_values = values_b[1:] * (1.0 - dones)
+            deltas = rewards_sums + gamma * next_values - values_b[:-1]
 
-            # Compute advantages backwards
+            # Compute advantages backwards, mask with dones
             advantages = torch.zeros_like(deltas)
             last_adv = 0
             for t in reversed(range(len(deltas))):
-                last_adv = deltas[t] + gamma * lamda * last_adv
+                last_adv = deltas[t] + gamma * lamda * (1.0 - dones[t]) * last_adv
                 advantages[t] = last_adv
 
             advantages_list_over_episodes.append(advantages)
@@ -272,9 +282,12 @@ class MAPPOSE(Agent):
             for n in range(self.num_agents):
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n, start_idxs_n = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n = self.convert_sample_to_tensor([states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n], dtype=torch.float32)
-
+                # print("Sample rewards:", rewards_seq_n[:5])
+                # print("Sample actions:", actions_seq_n[:5])
+                # print("Sample dones:", dones_seq_n[:5])
                 ## Get Pre-computed Advantages ##
                 advantages_n = torch.zeros((len(start_idxs_n), self.seq_size), dtype=torch.float32).to(self.device)
+
                 episode_length = buffer.end_episode_indices[0] + 1
                 for i, start_idx in enumerate(start_idxs_n): # Loop over batch of trajectories (start indices)
                     episode_idx = start_idx // episode_length
@@ -282,6 +295,7 @@ class MAPPOSE(Agent):
                     advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
                     advantages_n[i] = advantages_traj
 
+                print("Advantages mean:", advantages_n.mean().item(), "std:", advantages_n.std().item())
 
                 individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, hidden_states_seq_n, old_log_probs_seq_n, n)
                 individual_loss = -(individual_clipped_obj + self.entropy_coeff * entropies)  # Combine clipped objective and entropy bonus
@@ -314,9 +328,21 @@ class MAPPOSE(Agent):
 
                 # Optimize policy network
                 # POTENTIAL ISSUE!! - Updating each agent one at a time could cause issues since changes prob in loss
+                # print("Actor param before:", list(self.actor_models_list[n].parameters())[0].data[0])
+                params_before = copy.deepcopy(list(self.actor_models_list[n].parameters())[0].data.cpu().numpy())
                 self.optimizers_actor_list[n].zero_grad()
                 total_actor_loss.backward()
                 self.optimizers_actor_list[n].step()
+                # print("Actor param after:", list(self.actor_models_list[n].parameters())[0].data[0])
+                params_after = list(self.actor_models_list[n].parameters())[0].data.cpu().numpy()
+                # plot difference in params for one agent, subset of weights
+                param_diff = params_after - params_before
+                print(f"Agent {n} Actor parameter change (first 5 weights):", param_diff.flatten()[:5])
+                # plt.plot(param_diff.flatten()[:100])  # Plot first 100 weights' changes
+                # plt.title(f'Parameter Changes for Agent {n} in Batch {batch_idx}')
+                # plt.xlabel('Weight Index')
+                # plt.ylabel('Change in Weight Value')
+                # plt.show()
 
 
             ### Update Critic Network ###
@@ -326,10 +352,17 @@ class MAPPOSE(Agent):
             values_seq = self.critic_model(states).squeeze(-1)
             critic_loss = F.mse_loss(values_seq, reward_to_go_not_n)
 
+            # print("Critic param before:", list(self.critic_model.parameters())[0].data[0])
+            params_before = copy.deepcopy(list(self.critic_model.parameters())[0].data.cpu().numpy())
+
             # Optimize critic network
             self.optimizer_critic.zero_grad()
             critic_loss.backward()
             self.optimizer_critic.step()
+
+            # print("Critic param after:", list(self.critic_model.parameters())[0].data[0])
+            params_after = list(self.critic_model.parameters())[0].data.cpu().numpy()
+            print("Critic parameter change (first 5 weights):", (params_after - params_before).flatten()[:5])
 
             # end_batch_time = time.time()
             # print("     Time to update one batch:", round(end_batch_time - batch_start_time, 4), "seconds")
