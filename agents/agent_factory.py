@@ -1,6 +1,6 @@
 from agents.agent import Agent
 from agents.random_agent import Random
-from agents.mappose_agent import MAPPOSE
+from agents.mappose_agent_fast import MAPPOSE
 
 from util import get_full_state
 

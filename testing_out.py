@@ -95,7 +95,7 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
     pre_collect_time = time.time()
 
     for ep in range(num_episodes):
-        print("Running episode ", ep + 1, "/", num_episodes)
+        # print("Running episode ", ep + 1, "/", num_episodes)
         ep_return, _, terminated = run_episode(env, agent, mode, buffer)
         returns.append(ep_return)
         reward_sum = np.sum(ep_return)
@@ -112,7 +112,7 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
             all_actor_loss_list.extend(actor_loss_list)
             all_critic_loss.append(critic_loss)
 
-            print("Average actor loss this epoch:", np.mean(actor_loss_list), "Average critic loss this epoch:", critic_loss)
+            # print("Average actor loss this epoch:", np.mean(actor_loss_list), "Average critic loss this epoch:", critic_loss)
 
             # plotter.update(np.mean(actor_loss_list))
             # plotter.save("results/actor_loss_plot_{epoch}.png")
