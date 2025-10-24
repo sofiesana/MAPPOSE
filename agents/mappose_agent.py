@@ -261,7 +261,7 @@ class MAPPOSE(Agent):
 
         agent_batches_list = []
         for n in range(self.num_agents):
-            agent_batches_list.append(buffer.get_all_agent_batches(n, self.batch_size, window_size=self.seq_size))
+            agent_batches_list.append(buffer.get_all_agent_batches(n, self.batch_size, window_size=self.seq_size, non_overlapping=True))
         
         advantages_over_episodes, _ = self.compute_all_GAEs(buffer, self.critic_model) # Shape: [num_episodes, episode_length]
 

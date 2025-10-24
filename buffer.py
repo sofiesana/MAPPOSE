@@ -177,7 +177,7 @@ class Buffer:
                 self.hidden_states[batch_indices, agent_index], 
                 self.old_log_probs[batch_indices, agent_index], start_idxs)
     
-    def get_all_agent_batches(self, agent_index, batch_size, window_size=10):
+    def get_all_agent_batches(self, agent_index, batch_size, window_size=10, non_overlapping=True):
         if window_size > self.size:
             raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
         
@@ -187,7 +187,10 @@ class Buffer:
         
         
         all_batches = []
-        valid_starts = self.get_valid_start_indices_for_window(window_size)
+        if non_overlapping:
+            valid_starts = list(range(0, self.end_episode_indices[-1]+1, window_size))
+        else:
+            valid_starts = self.get_valid_start_indices_for_window(window_size)
         # Shuffle start indices
         rng = np.random.default_rng()
         rng.shuffle(valid_starts)
@@ -197,13 +200,15 @@ class Buffer:
 
             for b, start_index in enumerate(batch_starts):
                 # start_index = np.random.choice(valid_starts)
-                window = [(start_index + i) % self.size for i in range(window_size)]
-                if window[0] > 99990:
-                    print("Sampled start index at very high index:", window[0])
-                batch_indices[b] = window
+                if non_overlapping:
+                    window = list(range(start_index, start_index + window_size))
+                    batch_indices[b] = window
+                else:
+                    window = [(start_index + i) % self.size for i in range(window_size)]
+                    if window[0] > 99990:
+                        print("Sampled start index at very high index:", window[0])
+                    batch_indices[b] = window
             start_idxs = [indices[0] for indices in batch_indices]
-            # print(100000 in start_idxs)
-            # print(start_idxs)
 
             batch_data = (self.global_states[batch_indices, agent_index],
                           self.observations[batch_indices, agent_index],
