@@ -10,7 +10,7 @@ from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 import os
 
-N_COLLECTION_EPISODES = 2
+N_COLLECTION_EPISODES = 10
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
 ITERS = 1000
 
@@ -144,7 +144,7 @@ def run_environment(args):
         print(f"Iteration {iteration + 1}/{ITERS}")
     
         returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
-        plotter.update(np.mean(actor_loss_list))
+        # plotter.update(np.mean(actor_loss_list))
 
         mean_returns[iteration] = np.mean(returns)
         mean_actor_losses[iteration] = np.mean(actor_loss_list)

@@ -85,6 +85,8 @@ class MAPPOSE(Agent):
                 obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
                 h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
 
+                h_input = h_input.contiguous()
+
                 logits, h_next = actor(obs_input, h_input)
 
                 distribution = torch.distributions.Categorical(logits=logits)
@@ -117,7 +119,7 @@ class MAPPOSE(Agent):
         Return:
             - prob_list: list of probabilities of selecting the given actions
         """
-
+        h_init = h_init.contiguous() if h_init is not None else None
         logits, _ = policy(obs_seq, h_init)
         distribution = torch.distributions.Categorical(logits=logits)
 

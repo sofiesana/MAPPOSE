@@ -35,4 +35,4 @@ python3 -u testing_out.py
 
 ############ SAVING:
 # Save results
-cp -r $TMPDIR/MAPPOSE/results /scratch/s4716671/MARL/run_results/$SLURM_JOB_ID/results
+cp -r $TMPDIR/MAPPOSE/results /scratch/s4716671/MARL/run_results/$SLURM_JOB_ID
