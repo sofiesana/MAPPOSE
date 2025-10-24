@@ -41,22 +41,19 @@ class Buffer:
         self.dones[self.current_index] = dones
         self.hidden_states[self.current_index] = hidden_states
         self.old_log_probs[self.current_index] = log_probs
-        
-        if dones:
-            # print("Storing new episode index at:", self.current_index)
+
+        # Only append if any agent is done (vectorized check)
+        if np.any(dones):
             self.end_episode_indices.append(self.current_index)
 
-        if not self.buffer_filled:
-            if self.current_index == self.size - 1:
-                self.buffer_filled = True
-                self.current_index = 0
-            else:
-                self.current_index = (self.current_index + 1) % self.size
-        else:
-            self.current_index = (self.current_index + 1) % self.size
+        next_index = (self.current_index + 1) % self.size
+        if not self.buffer_filled and self.current_index == self.size - 1:
+            self.buffer_filled = True
+            next_index = 0
+        self.current_index = next_index
 
+        # Use set for faster lookup/removal if list is large
         if self.current_index in self.end_episode_indices:
-            # new episode has been overwritten, remove from list
             self.end_episode_indices.remove(self.current_index)
 
     def increase_index(self):
@@ -88,121 +85,89 @@ class Buffer:
                       f"Hidden State: {self.hidden_states[i, ag]}")
                 
     def get_valid_start_indices_for_window(self, window_size):
-        # Find all valid start indices (not crossing episode boundaries)
+        # Vectorized version for speed
         if self.buffer_filled:
-            max_index = self.size-1
+            max_index = self.size - 1
         else:
             max_index = self.current_index
 
-        valid_starts = []
-        # print(" terminal indices:", self.end_episode_indices)
-        for start in range(max_index):
-            # Build window indices with wrapping
-            window = [(start + i) % self.size for i in range(window_size)]
-            # print(window)
-            if not self.buffer_filled and (start + window_size > self.current_index):
-                # print("window:", window, "skipped because it exceeds current_index")
-                continue
-            actual_end_episode_indices = [((idx + 1) % self.size) for idx in self.end_episode_indices]
-            if any(idx in actual_end_episode_indices for idx in window[1:]):
-                # print("window:", window, "skipped because it crosses episode boundary", actual_new_episode_indices)
-                continue
-            valid_starts.append(start)
-        if not valid_starts:
+        valid_starts = np.arange(max_index)
+        if not self.buffer_filled:
+            valid_starts = valid_starts[valid_starts + window_size <= self.current_index]
+
+        # Precompute forbidden indices (episode boundaries)
+        forbidden = set(((np.array(self.end_episode_indices) + 1) % self.size).tolist())
+        # For each window, check if any forbidden index is in window[1:]
+        keep = []
+        for start in valid_starts:
+            window = [(start + i) % self.size for i in range(1, window_size)]
+            if not forbidden.intersection(window):
+                keep.append(start)
+        if not keep:
             raise ValueError("No valid sequence found")
-        # print("Valid start indices for window sampling:", valid_starts)
-        return valid_starts
+        return keep
     
     def get_rewards_to_go(self, window_size, start_idxs, discount_factor=0.99):
-        """Get rewards to go for each timestep in the window
-
-        Args:
-            window_size (int): size of sequence window
-            start_idx (List): list of starting index of the window
-            discount_factor (float, optional): discount factor. Defaults to 0.99.
-        """
-        rewards_to_go_array = np.zeros((len(start_idxs), window_size))
-
-        # Calculate rewards to go
+        """Vectorized rewards-to-go calculation for each window."""
+        rewards_to_go_array = np.zeros((len(start_idxs), window_size), dtype=np.float32)
+        end_indices = np.searchsorted(self.end_episode_indices, start_idxs, side='left')
         for b, start_idx in enumerate(start_idxs):
+            # Find the terminal index for this start
             our_terminal_idx = None
             for terminal_idx in self.end_episode_indices:
                 if terminal_idx >= start_idx:
                     our_terminal_idx = terminal_idx
                     break
-
-            total_sequence_length = our_terminal_idx - start_idx + 1
-            last_timestep_rewards_to_go = 0
+            if our_terminal_idx is None:
+                our_terminal_idx = self.size - 1
+            total_sequence_length = min(our_terminal_idx - start_idx + 1, window_size)
+            # Vectorized rewards for this window
+            idxs = np.arange(start_idx, start_idx + total_sequence_length) % self.size
+            rewards = np.sum(self.rewards[idxs], axis=1)
+            # Compute discounted rewards-to-go
+            rtg = 0.0
             for t in reversed(range(total_sequence_length)):
-                idx = start_idx + t
-                all_agents_rewards = np.sum(self.rewards[idx])
-                rewards_to_go = all_agents_rewards + discount_factor * last_timestep_rewards_to_go
-                if t < window_size:
-                    # print("Rewards to go at buffer index", idx, "for batch", b, "timestep", t, "is:", rewards_to_go)
-                    rewards_to_go_array[b, t] = rewards_to_go
-                last_timestep_rewards_to_go = rewards_to_go
-
+                rtg = rewards[t] + discount_factor * rtg
+                rewards_to_go_array[b, t] = rtg
         return rewards_to_go_array
 
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
         if window_size > self.size:
             raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
-        
         if not self.buffer_filled and self.current_index < window_size:
             print("Not enough samples in buffer yet to sample the requested batch size.")
-            return None # this may need to be handled differently
-        
-        # get batch of length window_size 
-        batch_indices = np.zeros((batch_size, window_size), dtype=int) 
-        
+            return None
         valid_starts = self.get_valid_start_indices_for_window(window_size)
-        for b in range(batch_size):
-            start_index = np.random.choice(valid_starts)
-            window = [(start_index + i) % self.size for i in range(window_size)]
-            batch_indices[b] = window
-            # get batch of length window_size
-            # print("batch size:", batch_size
-                #   , "window size:", window_size, "global state dim:", self.global_state_dim
-                #   , "observation dim:", self.observation_dim)
-
-        # print("Sampled batch indices for agent", agent_index, ":\n", batch_indices, "Batch shape:", batch_indices.shape)
-        start_idxs = [indices[0] for indices in batch_indices]
-
-        return (self.global_states[batch_indices, agent_index], 
-                self.observations[batch_indices, agent_index], 
-                self.actions[batch_indices, agent_index], 
-                self.rewards[batch_indices, agent_index], 
-                self.dones[batch_indices, agent_index], 
-                self.hidden_states[batch_indices, agent_index], 
+        # Vectorized batch sampling
+        start_indices = np.random.choice(valid_starts, size=batch_size, replace=True)
+        offsets = np.arange(window_size)
+        batch_indices = (start_indices[:, None] + offsets) % self.size
+        start_idxs = start_indices.tolist()
+        return (self.global_states[batch_indices, agent_index],
+                self.observations[batch_indices, agent_index],
+                self.actions[batch_indices, agent_index],
+                self.rewards[batch_indices, agent_index],
+                self.dones[batch_indices, agent_index],
+                self.hidden_states[batch_indices, agent_index],
                 self.old_log_probs[batch_indices, agent_index], start_idxs)
     
     def get_all_agent_batches(self, agent_index, batch_size, window_size=10):
         if window_size > self.size:
             raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
-        
         if not self.buffer_filled and self.current_index < window_size:
             print("Not enough samples in buffer yet to sample the requested batch size.")
-            return None # this may need to be handled differently
-        
-        
+            return None
         all_batches = []
         valid_starts = self.get_valid_start_indices_for_window(window_size)
-        # Shuffle start indices
+        valid_starts = np.array(valid_starts)
         rng = np.random.default_rng()
         rng.shuffle(valid_starts)
         for j in range(0, len(valid_starts), batch_size):
             batch_starts = valid_starts[j:j+batch_size]
-            batch_indices = np.zeros((len(batch_starts), window_size), dtype=int)
-
-            for b, start_index in enumerate(batch_starts):
-                # start_index = np.random.choice(valid_starts)
-                window = [(start_index + i) % self.size for i in range(window_size)]
-                batch_indices[b] = window
-            start_idxs = [indices[0] for indices in batch_indices]
-            # print(100000 in start_idxs)
-            # print(start_idxs)
-
+            offsets = np.arange(window_size)
+            batch_indices = (batch_starts[:, None] + offsets) % self.size
+            start_idxs = batch_starts.tolist()
             batch_data = (self.global_states[batch_indices, agent_index],
                           self.observations[batch_indices, agent_index],
                           self.actions[batch_indices, agent_index],
@@ -211,10 +176,8 @@ class Buffer:
                           self.hidden_states[batch_indices, agent_index],
                           self.old_log_probs[batch_indices, agent_index],
                           start_idxs)
-            
             all_batches.append(batch_data)
-
-        return all_batches  # list of batches
+        return all_batches
     
     def get_timestep_state_and_rewards(self, start_idx):
         """
