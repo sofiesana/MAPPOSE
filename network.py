@@ -54,6 +54,12 @@ class Critic_Network(nn.Module):
         # Final value head
         layers.append(nn.Linear(hidden_size, 1))
 
+        # use orthogonal initialization for all layers
+        for layer in layers:
+            if isinstance(layer, nn.Linear):
+                nn.init.orthogonal_(layer.weight)
+                nn.init.zeros_(layer.bias)
+
         self.model = nn.Sequential(*layers)
 
     def forward(self, full_map):
@@ -82,6 +88,10 @@ class ActorNetwork(nn.Module):  # policy network
 
         # Policy head: outputs logits for discrete actions
         self.policy_head = nn.Linear(hidden_size, n_actions)
+
+        # use orthogonal initialization for all layers
+        nn.init.orthogonal_(self.policy_head.weight)
+        nn.init.zeros_(self.policy_head.bias)
 
     def forward(self, obs_seq, h0=None):
         """
