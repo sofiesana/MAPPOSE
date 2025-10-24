@@ -14,7 +14,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.1, entropy_coeff=0.05):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=32, beta = 1, epsilon = 0.1, entropy_coeff=0.005):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -121,7 +121,7 @@ class MAPPOSE(Agent):
         logits, _ = policy(obs_seq, h_init)
         distribution = torch.distributions.Categorical(logits=logits)
 
-        log_probs_list = distribution.log_prob(action_seq)
+        log_probs_list = distribution.log_prob(action_seq) # Does network output whole sequence probs or just last one?
 
         if get_entropy:
             entropy = distribution.entropy()
@@ -144,7 +144,7 @@ class MAPPOSE(Agent):
 
         return array
     
-    def get_clipped_objective(self, actions_seq, obs_seq, advantages, old_log_probs, agent_idx, return_log_probs=False):
+    def get_clipped_objective(self, actions_seq, obs_seq, advantages, hidden_states, old_log_probs, agent_idx, return_log_probs=False):
         """Calculate PPO clipped objective for a given agent
         Args:
             - actions_seq: sequence of actions for agent n
@@ -157,10 +157,20 @@ class MAPPOSE(Agent):
             - entropies: entropy of the action distribution
         """
 
-        current_log_probs, entropies = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_models_list[agent_idx], get_entropy=True)
+        if hidden_states is not None:
+            hidden_states = hidden_states.permute(1, 0, 2)  # Change to (num_layers, batch_size, hidden_size)
+            hidden_states = hidden_states[0, :, :].unsqueeze(dim=0)  # Only use first timestep in sequence
+        obs_seq = obs_seq.permute(0, 1, 2)  # Change to (batch_size, seq_len, obs_dim)
+        # actions_seq = actions_seq.permute(1, 0)  # Change to (batch_size, seq_len)
+
+        # print("Hidden states shape:", hidden_states.shape)
+        # print("Obs seq shape:", obs_seq.shape)
+        # print("Actions seq shape:", actions_seq.shape)
+
+        current_log_probs, entropies = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_models_list[agent_idx], h_init=hidden_states, get_entropy=True)
         if old_log_probs is None:
             with torch.no_grad():
-                old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx])
+                old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx], h_init=hidden_states)
 
         policy_ratio = torch.exp(current_log_probs - old_log_probs)
 
@@ -211,7 +221,7 @@ class MAPPOSE(Agent):
             - advantages: tensor of advantages for all transitions
         """
 
-        states_list, rewards_sum_list = buffer.get_all_states_and_summed_rewards()
+        states_list, rewards_sum_list = buffer.get_all_states_and_summed_rewards() # Shape: (num_episodes, max_episode_length, state_dim), (num_episodes, max_episode_length)
         states_tensor, rewards_sum_tensor = self.convert_sample_to_tensor([states_list, rewards_sum_list])
 
         advantages_list_over_episodes = []
@@ -227,7 +237,7 @@ class MAPPOSE(Agent):
             values_b = torch.cat([values, bootstrap_value])
 
             # Compute deltas
-            deltas = rewards_sums + gamma * values_b[1:] - values_b[:-1]
+            deltas = (rewards_sums + (gamma * values_b[1:])) - values_b[:-1]
 
             # Compute advantages backwards
             advantages = torch.zeros_like(deltas)
@@ -275,7 +285,7 @@ class MAPPOSE(Agent):
                     advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
                     advantages_n[i] = advantages_traj
 
-                individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, old_log_probs_seq_n, n)
+                individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, hidden_states_seq_n, old_log_probs_seq_n, n)
                 individual_loss = -(individual_clipped_obj + self.entropy_coeff * entropies)  # Combine clipped objective and entropy bonus
 
                 ## Get Shared Experience Loss ##
@@ -293,17 +303,15 @@ class MAPPOSE(Agent):
                             advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
                             advantages_not_n[i] = advantages_traj
 
-                        shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, n, return_log_probs=True)
+                        shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, None, n, return_log_probs=True)
                         shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
-                        shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  # TODO I do not know exactly what to do with the entropy part, ill just do it on agent n
+                        shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  
 
                         total_shared_loss += shared_loss
 
                 mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
                 total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
                 actor_loss_list.append(total_actor_loss.item())
-
-                # TODO need to only update the prev actor model after all training on buffer, and set old policy to be one that collected the data
 
                 # Optimize policy network
                 # POTENTIAL ISSUE!! - Updating each agent one at a time could cause issues since changes prob in loss

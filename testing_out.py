@@ -1,4 +1,5 @@
 import gymnasium as gym
+from gymnasium.vector import SyncVectorEnv, AsyncVectorEnv
 import rware
 import numpy as np
 from util import get_full_state
@@ -9,7 +10,7 @@ from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 import os
 
-N_COLLECTION_EPISODES = 10
+N_COLLECTION_EPISODES = 2
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
 ITERS = 1000
 
@@ -109,6 +110,8 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
             all_actor_loss_list.extend(actor_loss_list)
             all_critic_loss.append(critic_loss)
 
+            print("Average actor loss this epoch:", np.mean(actor_loss_list), "Average critic loss this epoch:", critic_loss)
+
             # plotter.update(np.mean(actor_loss_list))
             # plotter.save("results/actor_loss_plot_{epoch}.png")
 
@@ -119,6 +122,8 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
 
     return returns, all_actor_loss_list, all_critic_loss
 
+def make_env():
+    return gym.make("rware-tiny-2ag-v2")
 
 def run_environment(args):
     """Main function to set up and run the environment with the specified agent"""
@@ -139,6 +144,7 @@ def run_environment(args):
         print(f"Iteration {iteration + 1}/{ITERS}")
     
         returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
+        plotter.update(np.mean(actor_loss_list))
 
         mean_returns[iteration] = np.mean(returns)
         mean_actor_losses[iteration] = np.mean(actor_loss_list)
