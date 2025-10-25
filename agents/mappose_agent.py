@@ -261,11 +261,13 @@ class MAPPOSE(Agent):
 
         agent_batches_list = []
         for n in range(self.num_agents):
-            agent_batches_list.append(buffer.get_all_agent_batches(n, self.batch_size, window_size=self.seq_size, non_overlapping=True))
+            batches = buffer.get_all_agent_batches(n, self.batch_size, window_size=self.seq_size, non_overlapping=True)
+            agent_batches_list.append(batches)
         
         advantages_over_episodes, _ = self.compute_all_GAEs(buffer, self.critic_model) # Shape: [num_episodes, episode_length]
 
         for batch_idx in range(len(agent_batches_list[0])):  # For each batch
+            # print("Num batches:", len(agent_batches_list[0]), "  Current batch:", batch_idx + 1)
             ### Update Actor Networks ###
             for n in range(self.num_agents):
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n, start_idxs_n = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
@@ -315,18 +317,18 @@ class MAPPOSE(Agent):
                 self.optimizers_actor_list[n].step()
 
 
+            states_new, _, _, _, _, _, _, start_idxs_new = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
+            states_new = torch.tensor(states_new, dtype=torch.float32).to(self.device)
+
             ### Update Critic Network ###
-            reward_to_go_not_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_not_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
-            values_seq = self.critic_model(states).squeeze(-1)
-            critic_loss = F.mse_loss(values_seq, reward_to_go_not_n)
+            reward_to_go = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_new), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
+            values_seq = self.critic_model(states_new).squeeze(-1)
+            critic_loss = F.mse_loss(values_seq, reward_to_go)
 
             # Optimize critic network
             self.optimizer_critic.zero_grad()
             critic_loss.backward()
             self.optimizer_critic.step()
-
-            # end_batch_time = time.time()
-            # print("     Time to update one batch:", round(end_batch_time - batch_start_time, 4), "seconds")
 
         return actor_loss_list, critic_loss.item()
 
