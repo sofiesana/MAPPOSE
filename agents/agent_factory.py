@@ -22,6 +22,17 @@ class AgentFactory:
         obs_dim = env.observation_space[0].shape[0]
         num_agents = len(env.observation_space)
         num_actions = env.action_space[0].n
+
+        ## For MPE env for debugging purposes
+        # obs, _ = env.reset()
+        # # obs is a dict like {'agent_0': obs_0, 'agent_1': obs_1, ...}
+        # agent_ids = list(obs.keys())
+        # num_agents = len(agent_ids)
+        # # Use any agent ID to query observation/action spaces
+        # sample_agent = agent_ids[0]
+        # obs_dim = env.observation_space(sample_agent).shape[0]
+        # num_actions = env.action_space(sample_agent).n
+        # state_dim = num_agents * obs_dim
         
         print(f"Creating agent of type {agent_type} with observation dim: {obs_dim}, state dimensions {state_dim} and number of actions {num_actions}")
 

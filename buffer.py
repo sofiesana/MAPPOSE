@@ -192,23 +192,23 @@ class Buffer:
         if non_overlapping:
             valid_starts = []
             i = 0
-            while i < self.current_index:
-                # print("Checking non-overlapping start index:", i)
-                if i + window_size <= self.current_index:
-                    #  check if i + window_size crosses a multiple of 500 (episode boundary)
-                    crosses_boundary = False
-                    for end_idx in self.end_episode_indices:
-                        if i < end_idx < i + window_size - 1:
-                            crosses_boundary = True
-                            # print("  Skipping start index", i, "because it crosses episode boundary at", end_idx)
-                            i = end_idx + 1  # jump to index after episode end
-                            break
-                    # print("Found valid start index:", i)
+            while i + window_size <= self.current_index:
+                #  check if i + window_size crosses a multiple of 500 (episode boundary)
+                crosses_boundary = False
+                for end_idx in self.end_episode_indices:
+                    if i < end_idx < i + window_size - 1:
+                        crosses_boundary = True
+                        # print("  Skipping start index", i, "because it crosses episode boundary at", end_idx)
+                        i = end_idx + 1  # jump to index after episode end
+                        break
+                # print("Found valid start index:", i)
+                if not crosses_boundary:
                     valid_starts.append(i)
-                i += window_size
-
+                    # Increment by window_size to ensure non-overlapping
+                    i += window_size
         else:
             valid_starts = self.get_valid_start_indices_for_window(window_size)
+        # print("Valid start indices for batch sampling:", valid_starts)
         # Shuffle start indices
         rng = np.random.default_rng()
         rng.shuffle(valid_starts)
@@ -279,10 +279,9 @@ class Buffer:
         return rewards, states, next_states, dones #, terminal_idx
     
     def get_all_states_and_summed_rewards(self):
-        num_episodes = len(self.end_episode_indices)
-        max_episode_length = self.end_episode_indices[0] + 1
-        states_list_across_episodes = np.zeros((num_episodes, max_episode_length, self.global_state_dim[0]))
-        rewards_list_across_episodes = np.zeros((num_episodes, max_episode_length))
+        # print("End episode indices:", self.end_episode_indices)
+        states_list_across_episodes = np.zeros((len(self.end_episode_indices), self.end_episode_indices[0]+1, self.global_state_dim[0])) # Shape: (num_episodes, max_episode_length, global_state_dim)
+        rewards_list_across_episodes = np.zeros((len(self.end_episode_indices), self.end_episode_indices[0]+1)) # Shape: (num_episodes, max_episode_length)
 
         start_idx = 0
         for e, episode_end_idx in enumerate(self.end_episode_indices):
