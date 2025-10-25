@@ -132,7 +132,7 @@ def run_environment(args):
     # set up looping through iters
     agent_factory = AgentFactory()
     # plotter = LiveLossPlotter()
-    env = gym.make("rware-tiny-2ag-v2")
+    env = gym.make("rware-tiny-2ag-easy-v2")
     agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=2048)
     os.mkdir("results") if not os.path.exists("results") else None
 
