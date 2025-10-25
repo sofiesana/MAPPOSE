@@ -15,7 +15,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=10, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=128, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -85,8 +85,6 @@ class MAPPOSE(Agent):
                 obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
                 h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
 
-                h_input = h_input.contiguous()
-
                 logits, h_next = actor(obs_input, h_input)
 
                 distribution = torch.distributions.Categorical(logits=logits)
@@ -119,7 +117,7 @@ class MAPPOSE(Agent):
         Return:
             - prob_list: list of probabilities of selecting the given actions
         """
-        h_init = h_init.contiguous() if h_init is not None else None
+
         logits, _ = policy(obs_seq, h_init)
         distribution = torch.distributions.Categorical(logits=logits)
 
@@ -194,7 +192,6 @@ class MAPPOSE(Agent):
         with torch.no_grad():
             value_t = critic_model(states).squeeze(-1)
             value_t_plus_1 = critic_model(next_states).squeeze(-1)
-        print("??????? Values shape:", value_t.shape, value_t_plus_1.shape)
 
         # Zero next_value where terminal
         value_t_plus_1 = value_t_plus_1 * (1.0 - dones)
@@ -212,7 +209,7 @@ class MAPPOSE(Agent):
         return advantages[:self.seq_size]
     
     def compute_all_GAEs(self, buffer: Buffer, critic_model, gamma=0.99, lamda=0.99):
-        """Compute GAE advantages for all trajectories in the buffer, using dones to mask episode ends
+        """Compute GAE advantages for all trajectories in the buffer
         Args:
             - buffer: buffer containing all transitions
             - critic_model: critic network to use for value estimation
@@ -220,22 +217,14 @@ class MAPPOSE(Agent):
             - advantages: tensor of advantages for all transitions
         """
 
-        states_list, rewards_sum_list = buffer.get_all_states_and_summed_rewards() # (num_episodes, max_episode_length, state_dim), (num_episodes, max_episode_length)
-        dones_list = []
-        # Collect dones for each episode
-        start_idx = 0
-        for episode_end_idx in buffer.end_episode_indices:
-            episode_dones = buffer.dones[start_idx:episode_end_idx+1, 0]  # shape: (episode_length,)
-            dones_list.append(torch.tensor(episode_dones, dtype=torch.float32, device=self.device))
-            start_idx = episode_end_idx + 1
-
+        states_list, rewards_sum_list = buffer.get_all_states_and_summed_rewards() # Shape: (num_episodes, max_episode_length, state_dim), (num_episodes, max_episode_length)
         states_tensor, rewards_sum_tensor = self.convert_sample_to_tensor([states_list, rewards_sum_list])
 
         advantages_list_over_episodes = []
         values_list_over_episodes = []
 
         # Loop over each episode
-        for ep_idx, (states, rewards_sums, dones) in enumerate(zip(states_tensor, rewards_sum_tensor, dones_list)):
+        for states, rewards_sums in zip(states_tensor, rewards_sum_tensor):
             with torch.no_grad():
                 values = critic_model(states).squeeze(-1)
 
@@ -243,15 +232,14 @@ class MAPPOSE(Agent):
             bootstrap_value = torch.tensor([0.0], device=values.device)
             values_b = torch.cat([values, bootstrap_value])
 
-            # Compute deltas, zero next value if done
-            next_values = values_b[1:] * (1.0 - dones)
-            deltas = rewards_sums + gamma * next_values - values_b[:-1]
+            # Compute deltas
+            deltas = (rewards_sums + (gamma * values_b[1:])) - values_b[:-1]
 
-            # Compute advantages backwards, mask with dones
+            # Compute advantages backwards
             advantages = torch.zeros_like(deltas)
             last_adv = 0
             for t in reversed(range(len(deltas))):
-                last_adv = deltas[t] + gamma * lamda * (1.0 - dones[t]) * last_adv
+                last_adv = deltas[t] + gamma * lamda * last_adv
                 advantages[t] = last_adv
 
             advantages_list_over_episodes.append(advantages)
@@ -284,9 +272,7 @@ class MAPPOSE(Agent):
             for n in range(self.num_agents):
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n, start_idxs_n = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n = self.convert_sample_to_tensor([states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n], dtype=torch.float32)
-                # print("Sample rewards:", rewards_seq_n[:5])
-                # print("Sample actions:", actions_seq_n[:5])
-                # print("Sample dones:", dones_seq_n[:5])
+
                 ## Get Pre-computed Advantages ##
                 advantages_n = torch.zeros((len(start_idxs_n), self.seq_size), dtype=torch.float32).to(self.device)
                 episode_length = buffer.end_episode_indices[0] + 1
@@ -296,95 +282,53 @@ class MAPPOSE(Agent):
                     advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
                     advantages_n[i] = advantages_traj
 
-                print("Advantages mean:", advantages_n.mean().item(), "std:", advantages_n.std().item())
-
                 individual_clipped_obj, entropies = self.get_clipped_objective(actions_seq_n, obs_seq_n, advantages_n, hidden_states_seq_n, old_log_probs_seq_n, n)
                 individual_loss = -(individual_clipped_obj + self.entropy_coeff * entropies)  # Combine clipped objective and entropy bonus
 
                 ## Get Shared Experience Loss ##
                 total_shared_loss = 0
-                # for not_n in range(self.num_agents):
-                #     if not_n != n: # For each other agent
-                #         states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n, start_idxs_not_n = agent_batches_list[not_n][batch_idx]
-                #         states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n = self.convert_sample_to_tensor([states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n], dtype=torch.float32)
+                for not_n in range(self.num_agents):
+                    if not_n != n: # For each other agent
+                        states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n, start_idxs_not_n = agent_batches_list[not_n][batch_idx]
+                        states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n = self.convert_sample_to_tensor([states, obs_seq_not_n, actions_seq_not_n, rewards_seq_not_n, dones_seq_not_n, hidden_states_seq_not_n, old_log_probs_seq_not_n], dtype=torch.float32)
 
-                #         ## Get Pre-computed Advantages for other agent ##
-                #         advantages_not_n = torch.zeros((len(start_idxs_not_n), self.seq_size), dtype=torch.float32).to(self.device)
-                #         for i, start_idx in enumerate(start_idxs_not_n): # Loop over batch of trajectories for agent not_n
-                #             episode_idx = start_idx // episode_length
-                #             advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
-                #             advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
-                #             advantages_not_n[i] = advantages_traj
+                        ## Get Pre-computed Advantages for other agent ##
+                        advantages_not_n = torch.zeros((len(start_idxs_not_n), self.seq_size), dtype=torch.float32).to(self.device)
+                        for i, start_idx in enumerate(start_idxs_not_n): # Loop over batch of trajectories for agent not_n
+                            episode_idx = start_idx // episode_length
+                            advantages_traj = advantages_over_episodes[episode_idx][start_idx % episode_length : (start_idx % episode_length) + self.seq_size]
+                            advantages_traj = F.pad(advantages_traj, (0, self.seq_size - advantages_traj.shape[0]), "constant", 0) # Pad if needed
+                            advantages_not_n[i] = advantages_traj
 
-                #         shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, None, n, return_log_probs=True)
-                #         shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
-                #         shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  
+                        shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, None, n, return_log_probs=True)
+                        shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
+                        shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  
 
-                #         total_shared_loss += shared_loss
+                        total_shared_loss += shared_loss
 
-                # mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
-                # total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
-                total_actor_loss = torch.mean(individual_loss)
+                mean_shared_loss = (total_shared_loss / (self.num_agents - 1))
+                total_actor_loss = torch.mean(individual_loss + self.beta * mean_shared_loss)
                 actor_loss_list.append(total_actor_loss.item())
 
                 # Optimize policy network
                 # POTENTIAL ISSUE!! - Updating each agent one at a time could cause issues since changes prob in loss
-                # print("Actor param before:", list(self.actor_models_list[n].parameters())[0].data[0])
-                params_before = copy.deepcopy(list(self.actor_models_list[n].parameters())[0].data.cpu().numpy())
                 self.optimizers_actor_list[n].zero_grad()
                 total_actor_loss.backward()
                 self.optimizers_actor_list[n].step()
-                #   print("Actor param after:", list(self.actor_models_list[n].parameters())[0].data[0])
-                params_after = list(self.actor_models_list[n].parameters())[0].data.cpu().numpy()
-                # plot difference in params for one agent, subset of weights
-                param_diff = params_after - params_before
-                print(f"Agent {n} Actor parameter change (first 5 weights):", param_diff.flatten()[:5])
-                # plt.plot(param_diff.flatten()[:100])  # Plot first 100 weights' changes
-                # plt.title(f'Parameter Changes for Agent {n} in Batch {batch_idx}')
-                # plt.xlabel('Weight Index')
-                # plt.ylabel('Change in Weight Value')
-                # plt.show()
+
 
             states_new, _, _, _, _, _, _, start_idxs_new = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
             states_new = torch.tensor(states_new, dtype=torch.float32).to(self.device)
 
             ### Update Critic Network ###
-            # reward_to_go = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_new), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
-            reward_to_go_n = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_n), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
-            reward_to_go_not_n = reward_to_go_n  # Using same rewards for all agents
+            reward_to_go = torch.tensor(buffer.get_rewards_to_go(window_size=self.seq_size, start_idxs=start_idxs_new), dtype=torch.float32).to(self.device)  # shape: [batch_size, seq_len]
             values_seq = self.critic_model(states_new).squeeze(-1)
             critic_loss = F.mse_loss(values_seq, reward_to_go)
-
-            # print("Critic param before:", list(self.critic_model.parameters())[0].data[0])
-            params_before = copy.deepcopy(list(self.critic_model.parameters())[0].data.cpu().numpy())
 
             # Optimize critic network
             self.optimizer_critic.zero_grad()
             critic_loss.backward()
             self.optimizer_critic.step()
 
-            # print("Critic param after:", list(self.critic_model.parameters())[0].data[0])
-            params_after = list(self.critic_model.parameters())[0].data.cpu().numpy()
-            print("Critic parameter change (first 5 weights):", (params_after - params_before).flatten()[:5])
-
-            # print("Critic param after:", list(self.critic_model.parameters())[0].data[0])
-            params_after = list(self.critic_model.parameters())[0].data.cpu().numpy()
-            print("Critic parameter change (first 5 weights):", (params_after - params_before).flatten()[:5])
-
-
-
         return actor_loss_list, critic_loss.item()
-    
-    def save_all_models(self, path):
-        """Save all models to the given path
-        Args:
-            path (str): The path to save the models
-        """
-        os.makedirs(path) if not os.path.exists(path) else None
-        # Save actor models
-        for n in range(self.num_agents):
-            torch.save(self.actor_models_list[n].state_dict(), f"{path}/actor_model_{n}.pth")
 
-        # Save critic model
-        torch.save(self.critic_model.state_dict(), f"{path}/critic_model.pth")
-        
