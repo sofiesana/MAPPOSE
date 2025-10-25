@@ -4,10 +4,10 @@ from gymnasium.vector import SyncVectorEnv, AsyncVectorEnv
 import rware
 import numpy as np
 from util import get_full_state
-from buffer import Buffer
+from new_buffer import Buffer
 import time
 
-from agents.agent_factory import AgentFactory
+from agents.agent_factory_vect import AgentFactory
 from plotting import LiveLossPlotter
 import os
 
@@ -20,8 +20,7 @@ class RwareRewardWrapper(gym.Wrapper):
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         # If reward is a list, sum it
-        if isinstance(reward, list):
-            reward = float(np.sum(reward))
+        reward = float(np.sum(reward))
         return obs, reward, terminated, truncated, info
 
 def inspect_environment(env):
@@ -99,6 +98,7 @@ def run_vectorized_episodes(env, agent, num_episodes, plotter, buffer, mode='tra
                 term[i] = True
 
         global_state = [get_full_state(env.envs[i], flatten=True) for i in range(n_envs)]
+        # print(reward.shape)
 
         buffer.store_transitions(
             global_states=np.array(global_state),
@@ -127,12 +127,19 @@ def make_env():
     env = RwareRewardWrapper(env)
     return env
 
-def run_episodes_vectorized(env, agent, plotter, buffer, mode='train'):
+def run_episodes_vectorized(env, agent, plotter, mode='train'):
     """
     Run multiple episodes in parallel vectorized environments and store the returns.
     """
     if mode == 'test':
         agent.set_test_mode()
+
+    global_state_dim = get_full_state(env.envs[0], flatten=True).shape
+    n_agents = len(env.single_observation_space)
+    observation_dim = env.single_observation_space[0].shape[0]
+    hidden_state_dim = 128
+    buffer = Buffer(max_episodes=N_COLLECTION_EPISODES, n_agents=n_agents, global_state_dim=global_state_dim,
+                    obs_dim=observation_dim, hidden_state_dim=hidden_state_dim, n_envs=N_ENVS)
 
     pre_collect_time = time.time()
     returns, steps, terminated = run_vectorized_episodes(env, agent, N_COLLECTION_EPISODES, plotter, buffer, mode)
@@ -161,15 +168,8 @@ def run_environment(args):
     """Main function to set up and run the environment with the specified agent"""
     agent_factory = AgentFactory()
     env = make_vector_env()
-    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=2048)
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=3)
     os.mkdir("results") if not os.path.exists("results") else None
-
-    global_state_dim = get_full_state(env.envs[0], flatten=True).shape
-    n_agents = len(env.single_observation_space)
-    observation_dim = env.single_observation_space[0].shape[0]
-    hidden_state_dim = 128
-    buffer = Buffer(size=100000, n_agents=n_agents, global_state_dim=global_state_dim,
-                    observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
 
     mean_returns = np.zeros(ITERS)
     mean_actor_losses = np.zeros(ITERS)
@@ -180,7 +180,7 @@ def run_environment(args):
         env.reset()
         print(f"Iteration {iteration + 1}/{ITERS}")
 
-        returns, actor_loss_list, critic_loss = run_episodes_vectorized(env, agent, None, buffer, mode='train')
+        returns, actor_loss_list, critic_loss = run_episodes_vectorized(env, agent, None, mode='train')
 
         mean_returns[iteration] = np.mean(returns)
         mean_actor_losses[iteration] = np.mean(actor_loss_list)

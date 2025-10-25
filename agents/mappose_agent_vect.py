@@ -233,8 +233,11 @@ class MAPPOSE(Agent):
 
         # Loop over each episode
         for states, rewards_sums in zip(states_tensor, rewards_sum_tensor):
+            print("states.shape:", states.shape, "rewards_sums.shape:", rewards_sums.shape)
             with torch.no_grad():
                 values = critic_model(states).squeeze(-1)
+
+            print("values.shape:", values.shape)
 
             # Bootstrap next value
             bootstrap_value = torch.tensor([0.0], device=values.device)
