@@ -1,5 +1,6 @@
 from tracemalloc import start
 import numpy as np
+import torch
 
 
 
@@ -12,7 +13,7 @@ class Buffer:
         self.hidden_state_dim = hidden_state_dim
 
         self.current_index = 0
-        self.new_episode_indices = []
+        self.end_episode_indices = []
 
         self.global_states = np.zeros((size, n_agents, *global_state_dim))
         self.observations = np.zeros((size, n_agents, observation_dim))
@@ -43,7 +44,7 @@ class Buffer:
         
         if dones:
             # print("Storing new episode index at:", self.current_index)
-            self.new_episode_indices.append(self.current_index)
+            self.end_episode_indices.append(self.current_index)
 
         if not self.buffer_filled:
             if self.current_index == self.size - 1:
@@ -54,9 +55,9 @@ class Buffer:
         else:
             self.current_index = (self.current_index + 1) % self.size
 
-        if self.current_index in self.new_episode_indices:
+        if self.current_index in self.end_episode_indices:
             # new episode has been overwritten, remove from list
-            self.new_episode_indices.remove(self.current_index)
+            self.end_episode_indices.remove(self.current_index)
 
     def increase_index(self):
         self.current_index = (self.current_index + 1) % self.size
@@ -94,7 +95,7 @@ class Buffer:
             max_index = self.current_index
 
         valid_starts = []
-        # print(" terminal indices:", self.new_episode_indices)
+        # print(" terminal indices:", self.end_episode_indices)
         for start in range(max_index):
             # Build window indices with wrapping
             window = [(start + i) % self.size for i in range(window_size)]
@@ -102,8 +103,8 @@ class Buffer:
             if not self.buffer_filled and (start + window_size > self.current_index):
                 # print("window:", window, "skipped because it exceeds current_index")
                 continue
-            actual_new_episode_indices = [((idx + 1) % self.size) for idx in self.new_episode_indices]
-            if any(idx in actual_new_episode_indices for idx in window[1:]):
+            actual_end_episode_indices = [((idx + 1) % self.size) for idx in self.end_episode_indices]
+            if any(idx in actual_end_episode_indices for idx in window[1:]):
                 # print("window:", window, "skipped because it crosses episode boundary", actual_new_episode_indices)
                 continue
             valid_starts.append(start)
@@ -120,26 +121,28 @@ class Buffer:
             start_idx (List): list of starting index of the window
             discount_factor (float, optional): discount factor. Defaults to 0.99.
         """
-        rewards_to_go = np.zeros((len(start_idxs), window_size))
+        rewards_to_go_array = np.zeros((len(start_idxs), window_size))
 
+        # Calculate rewards to go
         for b, start_idx in enumerate(start_idxs):
-            idx = start_idx + window_size - 1
+            our_terminal_idx = None
+            for terminal_idx in self.end_episode_indices:
+                if terminal_idx >= start_idx:
+                    our_terminal_idx = terminal_idx
+                    break
+
+            total_sequence_length = our_terminal_idx - start_idx + 1
             last_timestep_rewards_to_go = 0
-            # Get rewards to go of last timestep in window, to later calculate previous ones
-            # print("Index at end of window:", idx)
-            while self.dones[idx, 0] != True:
+            for t in reversed(range(total_sequence_length)):
+                idx = start_idx + t
                 all_agents_rewards = np.sum(self.rewards[idx])
-                last_timestep_rewards_to_go += all_agents_rewards * discount_factor ** (idx - start_idx - window_size)
-                idx = idx + 1
+                rewards_to_go = all_agents_rewards + discount_factor * last_timestep_rewards_to_go
+                if t < window_size:
+                    # print("Rewards to go at buffer index", idx, "for batch", b, "timestep", t, "is:", rewards_to_go)
+                    rewards_to_go_array[b, t] = rewards_to_go
+                last_timestep_rewards_to_go = rewards_to_go
 
-            # Calculate rewards to go backwards
-            for t in reversed(range(window_size)):
-                idx = (start_idx + t)
-                all_agents_rewards = np.sum(self.rewards[idx])
-                rewards_to_go[b, t] = all_agents_rewards + discount_factor * last_timestep_rewards_to_go
-                last_timestep_rewards_to_go = rewards_to_go[b, t]
-
-        return rewards_to_go
+        return rewards_to_go_array
 
 
     def sample_agent_batch(self, agent_index, batch_size, window_size=10):
@@ -174,7 +177,7 @@ class Buffer:
                 self.hidden_states[batch_indices, agent_index], 
                 self.old_log_probs[batch_indices, agent_index], start_idxs)
     
-    def get_all_agent_batches(self, agent_index, batch_size, window_size=10):
+    def get_all_agent_batches(self, agent_index, batch_size, window_size=10, non_overlapping=True):
         if window_size > self.size:
             raise ValueError(f"Window size, {window_size}, cannot be larger than buffer size, {self.size}.")
         
@@ -184,7 +187,26 @@ class Buffer:
         
         
         all_batches = []
-        valid_starts = self.get_valid_start_indices_for_window(window_size)
+        if non_overlapping:
+            valid_starts = []
+            i = 0
+            while i + window_size <= self.current_index:
+                #  check if i + window_size crosses a multiple of 500 (episode boundary)
+                crosses_boundary = False
+                for end_idx in self.end_episode_indices:
+                    if i < end_idx < i + window_size - 1:
+                        crosses_boundary = True
+                        # print("  Skipping start index", i, "because it crosses episode boundary at", end_idx)
+                        i = end_idx + 1  # jump to index after episode end
+                        break
+                # print("Found valid start index:", i)
+                if not crosses_boundary:
+                    valid_starts.append(i)
+                    # Increment by window_size to ensure non-overlapping
+                    i += window_size
+        else:
+            valid_starts = self.get_valid_start_indices_for_window(window_size)
+        # print("Valid start indices for batch sampling:", valid_starts)
         # Shuffle start indices
         rng = np.random.default_rng()
         rng.shuffle(valid_starts)
@@ -194,11 +216,15 @@ class Buffer:
 
             for b, start_index in enumerate(batch_starts):
                 # start_index = np.random.choice(valid_starts)
-                window = [(start_index + i) % self.size for i in range(window_size)]
-                batch_indices[b] = window
+                if non_overlapping:
+                    window = list(range(start_index, start_index + window_size))
+                    batch_indices[b] = window
+                else:
+                    window = [(start_index + i) % self.size for i in range(window_size)]
+                    if window[0] > 99990:
+                        print("Sampled start index at very high index:", window[0])
+                    batch_indices[b] = window
             start_idxs = [indices[0] for indices in batch_indices]
-            # print(100000 in start_idxs)
-            # print(start_idxs)
 
             batch_data = (self.global_states[batch_indices, agent_index],
                           self.observations[batch_indices, agent_index],
@@ -220,7 +246,7 @@ class Buffer:
         """
 
         # Find the terminal timestep for this episode
-        terminal_idx = min([idx for idx in self.new_episode_indices if idx >= start_idx])
+        terminal_idx = min([idx for idx in self.end_episode_indices if idx >= start_idx])
         timesteps = list(range(start_idx, terminal_idx + 1))
 
         rewards = []
@@ -251,13 +277,20 @@ class Buffer:
         return rewards, states, next_states, dones #, terminal_idx
     
     def get_all_states_and_summed_rewards(self):
-        states_list_across_episodes = np.zeros((len(self.new_episode_indices), self.new_episode_indices[0]+1, self.global_state_dim[0])) # Shape: (num_episodes, max_episode_length, global_state_dim)
-        rewards_list_across_episodes = np.zeros((len(self.new_episode_indices), self.new_episode_indices[0]+1)) # Shape: (num_episodes, max_episode_length)
+        # print("End episode indices:", self.end_episode_indices)
+        states_list_across_episodes = np.zeros((len(self.end_episode_indices), self.end_episode_indices[0]+1, self.global_state_dim[0])) # Shape: (num_episodes, max_episode_length, global_state_dim)
+        rewards_list_across_episodes = np.zeros((len(self.end_episode_indices), self.end_episode_indices[0]+1)) # Shape: (num_episodes, max_episode_length)
 
-        for e, start_idx in enumerate(self.new_episode_indices):
-            rewards, states, _, _ = self.get_timestep_state_and_rewards(start_idx)
-            states_list_across_episodes[e, :len(states), :] = np.array(states)
-            rewards_list_across_episodes[e, :len(rewards)] = np.array(rewards)
+        start_idx = 0
+        for e, episode_end_idx in enumerate(self.end_episode_indices):
+            # rewards, states, _, _ = self.get_timestep_state_and_rewards(start_idx)
+            rewards_sum = np.sum(self.rewards[start_idx:episode_end_idx+1], axis=1)
+            states = self.global_states[start_idx:episode_end_idx+1, 0, :]
+
+            states_list_across_episodes[e, :len(states), :] = states
+            rewards_list_across_episodes[e, :len(rewards_sum)] = rewards_sum
+
+            start_idx = episode_end_idx + 1
 
         return states_list_across_episodes, rewards_list_across_episodes
 

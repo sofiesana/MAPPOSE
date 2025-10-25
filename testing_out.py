@@ -1,4 +1,5 @@
 import gymnasium as gym
+from gymnasium.vector import SyncVectorEnv, AsyncVectorEnv
 import rware
 import numpy as np
 from util import get_full_state
@@ -9,7 +10,7 @@ from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 import os
 
-N_COLLECTION_EPISODES = 50
+N_COLLECTION_EPISODES = 10
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
 ITERS = 1000
 
@@ -43,7 +44,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
     while not episode_ended:
         # env.render()
 
-        action, log_probs, hidden_states = agent.choose_action(observation, hidden_states)
+        action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
+        # action, log_probs, new_hidden_states = agent.choose_random_action()
         # action = env.action_space.sample()  # Random action for placeholder
 
         new_observation, reward, terminated, truncated, info = env.step(action)
@@ -65,10 +67,11 @@ def run_episode(env, agent, mode, buffer: Buffer):
             episode_ended = True
             
         observation = new_observation
+        hidden_states = new_hidden_states
         step_counter += 1
 
-    if mode == 'train':
-        print("Training step...")
+    # if mode == 'train':
+    #     print("Training step...")
         # agent.store_transition(observation, action, reward, new_observation, terminated)
         
     return ep_return, step_counter, terminated
@@ -89,12 +92,16 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
     if mode == 'test':
         agent.set_test_mode()
 
+    pre_collect_time = time.time()
+
     for ep in range(num_episodes):
         print("Running episode ", ep + 1, "/", num_episodes)
         ep_return, _, terminated = run_episode(env, agent, mode, buffer)
         returns.append(ep_return)
         reward_sum = np.sum(ep_return)
         print(f"Episode {ep} | mean return: {reward_sum} | terminated: {bool(terminated)}")
+
+    print("Time to collect episodes:", round(time.time() - pre_collect_time, 4), "seconds")
 
     if mode == 'train':
         all_actor_loss_list = []
@@ -104,6 +111,8 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
             actor_loss_list, critic_loss = agent.learn(buffer)
             all_actor_loss_list.extend(actor_loss_list)
             all_critic_loss.append(critic_loss)
+
+            print("Average actor loss this epoch:", np.mean(actor_loss_list), "Average critic loss this epoch:", critic_loss)
 
             # plotter.update(np.mean(actor_loss_list))
             # plotter.save("results/actor_loss_plot_{epoch}.png")
@@ -115,14 +124,16 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
 
     return returns, all_actor_loss_list, all_critic_loss
 
+def make_env():
+    return gym.make("rware-tiny-2ag-v2")
 
 def run_environment(args):
     """Main function to set up and run the environment with the specified agent"""
     # set up looping through iters
     agent_factory = AgentFactory()
-    plotter = LiveLossPlotter()
+    # plotter = LiveLossPlotter()
     env = gym.make("rware-tiny-2ag-v2")
-    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=512)
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=8)
     os.mkdir("results") if not os.path.exists("results") else None
 
     mean_returns = np.zeros(ITERS)
@@ -135,6 +146,11 @@ def run_environment(args):
         print(f"Iteration {iteration + 1}/{ITERS}")
     
         returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
+        # plotter.update(np.mean(actor_loss_list))
+
+        mean_returns[iteration] = np.mean(returns)
+        mean_actor_losses[iteration] = np.mean(actor_loss_list)
+        mean_critic_losses[iteration] = np.mean(critic_loss)
 
         mean_returns[iteration] = np.mean(returns)
         mean_actor_losses[iteration] = np.mean(actor_loss_list)
