@@ -95,18 +95,16 @@ class Buffer:
             max_index = self.current_index
 
         valid_starts = []
-        print(" terminal indices:", self.end_episode_indices)
+        # print(" terminal indices:", self.end_episode_indices)
         for start in range(max_index):
             # Build window indices with wrapping
             window = [(start + i) % self.size for i in range(window_size)]
-            print("Checking window:", window)
             # print(window)
             if not self.buffer_filled and (start + window_size > self.current_index):
                 # print("window:", window, "skipped because it exceeds current_index")
                 continue
             actual_end_episode_indices = [((idx + 1) % self.size) for idx in self.end_episode_indices]
             if any(idx in actual_end_episode_indices for idx in window[1:]):
-                print("window:", window, "skipped because it crosses episode boundary", actual_end_episode_indices)
                 # print("window:", window, "skipped because it crosses episode boundary", actual_new_episode_indices)
                 continue
             valid_starts.append(start)
@@ -285,18 +283,12 @@ class Buffer:
 
         start_idx = 0
         for e, episode_end_idx in enumerate(self.end_episode_indices):
-            episode_dones = self.dones[start_idx:episode_end_idx+1, 0]  # shape: (episode_length,)
-            episode_rewards = np.sum(self.rewards[start_idx:episode_end_idx+1], axis=1)
-            episode_states = self.global_states[start_idx:episode_end_idx+1, 0, :]
+            # rewards, states, _, _ = self.get_timestep_state_and_rewards(start_idx)
+            rewards_sum = np.sum(self.rewards[start_idx:episode_end_idx+1], axis=1)
+            states = self.global_states[start_idx:episode_end_idx+1, 0, :]
 
-            # Find first done=True, truncate episode at that point
-            if np.any(episode_dones):
-                terminal_idx = np.argmax(episode_dones) + 1  # +1 to include terminal state
-                episode_rewards = episode_rewards[:terminal_idx]
-                episode_states = episode_states[:terminal_idx]
-
-            states_list_across_episodes[e, :len(episode_states), :] = episode_states
-            rewards_list_across_episodes[e, :len(episode_rewards)] = episode_rewards
+            states_list_across_episodes[e, :len(states), :] = states
+            rewards_list_across_episodes[e, :len(rewards_sum)] = rewards_sum
 
             start_idx = episode_end_idx + 1
 
