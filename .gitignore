@@ -5,5 +5,10 @@ venv/
 *.pyc
 
 results/
+models/
+models/
 
 results_monitoring.ipynb
+
+run_1/
+

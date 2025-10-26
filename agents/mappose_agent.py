@@ -84,6 +84,7 @@ class MAPPOSE(Agent):
             for actor, obs, h in zip(self.actor_models_list, obs_list, hidden_list):
                 obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
                 h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
+                h_input = h_input.contiguous()
 
                 logits, h_next = actor(obs_input, h_input)
 
@@ -117,6 +118,8 @@ class MAPPOSE(Agent):
         Return:
             - prob_list: list of probabilities of selecting the given actions
         """
+        if h_init is not None:
+            h_init = h_init.contiguous()
 
         logits, _ = policy(obs_seq, h_init)
         distribution = torch.distributions.Categorical(logits=logits)
@@ -340,4 +343,14 @@ class MAPPOSE(Agent):
 
         return actor_loss_list, critic_loss.item()
 
+    def save_all_models(self, path):
+        """Save all models to specified path
+        Args:
+            path (str): The directory path where models will be saved
+        """
+        os.makedirs(path, exist_ok=True)
+        for i in range(len(self.actor_models_list)):
+            torch.save(self.actor_models_list[i].state_dict(), os.path.join(path, f"actor_model_agent_{i}.pth"))
+            torch.save(self.actor_prev_models_list[i].state_dict(), os.path.join(path, f"actor_prev_model_agent_{i}.pth"))
 
+        torch.save(self.critic_model.state_dict(), os.path.join(path, "critic_model.pth"))
