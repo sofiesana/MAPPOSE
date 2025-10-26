@@ -3,11 +3,12 @@ import numpy as np
 from collections import Counter
 
 from buffer import Buffer
-from util import get_full_state
+from util import get_full_state, get_global_image, get_true_coords
 from agents.agent_factory import AgentFactory
+from rware.warehouse import ImageLayer
 
 # --- SETTINGS ---
-N_COLLECTION_EPISODES = 25
+N_COLLECTION_EPISODES = 1
 SEQ_SIZE = 16  # sequence length for training
 HIDDEN_STATE_DIM = 128
 BUFFER_SIZE = 5000
@@ -20,25 +21,72 @@ def make_env():
     return env
 
 # ------------------------------
+# Print environment debug info
+# ------------------------------
+def print_env_debug(env):
+    global_image = get_global_image(env.unwrapped, image_layers=[
+        ImageLayer.SHELVES,
+        ImageLayer.REQUESTS,
+        ImageLayer.GOALS,
+        ImageLayer.AGENT_DIRECTION,
+        ImageLayer.AGENT_LOAD
+    ], recompute=True)
+
+    shelves_layer = global_image[0]
+    requests_layer = global_image[1]
+    goals_layer = global_image[2]  # coordinates
+    agent_dir_layer = global_image[3]
+    agent_load_layer = global_image[4]
+
+    # Combine shelves + requests
+    combined_shelves = shelves_layer.copy()
+    combined_shelves[requests_layer == 1] = 2
+
+    # Get goal coordinates
+    goal_coords = get_true_coords(goals_layer)
+
+    print("\n--- Environment Debug ---")
+    print("Combined Shelves + Requests (1=shelf, 2=requested shelf):\n", combined_shelves)
+    print("\nGoal Coordinates (x,y):\n", goal_coords)
+    print("\nAgent Direction (0=none, 1-4=dir):\n", agent_dir_layer)
+    print("\nAgent Load (1=carrying shelf):\n", agent_load_layer)
+
+    # Detect pickups: agent load overlapping with requested shelf
+    pickups = []
+    for y, x in get_true_coords(agent_load_layer):
+        if combined_shelves[y, x] == 2:
+            pickups.append((y, x))
+    print(f"\nPickups detected at: {pickups}")
+
+# ------------------------------
 # Reward shaping
 # ------------------------------
 def shape_rewards(env, rewards, obs, actions, info):
     """
     Shape rewards for rware-tiny-2ag-v2:
-      - Step penalty: -0.01 per step
-      - Pickup reward: +1.0 for picking up requested shelf
+      - Pickup reward: +0.5 for picking up a requested shelf
     """
     n_agents = len(rewards)
     shaped_rewards = np.array(rewards, dtype=np.float32)
 
-    # Step penalty
-    shaped_rewards -= 0.01
+    # Get environment matrices
+    global_image = get_global_image(env.unwrapped, image_layers=[
+        ImageLayer.SHELVES,
+        ImageLayer.REQUESTS,
+        ImageLayer.AGENT_LOAD
+    ], recompute=True)
 
-    # Pickup reward
-    if 'picked_up_shelf' in info:
-        for i in range(n_agents):
-            if info['picked_up_shelf'][i]:
-                shaped_rewards[i] += 1.0
+    shelves_layer = global_image[0]
+    requests_layer = global_image[1]
+    combined_shelves = shelves_layer.copy()
+    combined_shelves[requests_layer == 1] = 2
+    agent_load_layer = global_image[2]
+
+    # Pickup reward: agent carrying a requested shelf
+    for idx, ag in enumerate(env.agents):
+        y, x = ag.y, ag.x
+        if agent_load_layer[y, x] == 1 and combined_shelves[y, x] == 2:
+            shaped_rewards[idx] += 0.5
 
     return shaped_rewards
 
@@ -58,9 +106,6 @@ def run_episode(env, agent, buffer: Buffer, mode='train'):
     cumulative_rewards = np.zeros(n_agents)
     hidden_state_trace = [[] for _ in range(n_agents)]
     action_counts = [Counter() for _ in range(n_agents)]
-
-    # Track previous distances for reward shaping
-    prev_distances = None
 
     while not (terminated or truncated):
         # Choose actions
@@ -102,14 +147,18 @@ def run_episode(env, agent, buffer: Buffer, mode='train'):
         hidden_states = new_hidden_states
         step_counter += 1
 
-        # Debug prints per step
-        print(f"[Step {step_counter}]")
+        # Step info
+        print(f"\n=== Step {step_counter} ===")
         print(f"Actions: {actions}")
         print(f"Shaped Rewards: {rewards}")
         print(f"Dones: {terminated}")
         print(f"Hidden states sample (agent 0): {hidden_states[0]}")
         print(f"Buffer index after store: {buffer.current_index}")
-        print(f"Last end_episode_index: {buffer.end_episode_indices[-1] if buffer.end_episode_indices else 'None'}\n")
+        print(f"Last end_episode_index: {buffer.end_episode_indices[-1] if buffer.end_episode_indices else 'None'}")
+        print(f"Step info dict: {info}")
+
+        # Print environment matrices and pickups
+        print_env_debug(env)
 
     return np.sum(ep_return), step_counter, terminated, cumulative_rewards, hidden_state_trace, action_counts
 
