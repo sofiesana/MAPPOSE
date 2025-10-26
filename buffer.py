@@ -42,7 +42,7 @@ class Buffer:
         self.hidden_states[self.current_index] = hidden_states
         self.old_log_probs[self.current_index] = log_probs
 
-        if dones:
+        if np.any(dones):
             # print("Storing new episode index at:", self.current_index)
             self.end_episode_indices.append(self.current_index)
 
