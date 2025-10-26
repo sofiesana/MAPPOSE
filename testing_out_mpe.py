@@ -117,10 +117,10 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
         agent.set_test_mode()
 
     for ep in range(num_episodes):
-        print(f"Running episode {ep + 1}/{num_episodes}")
+        # print(f"Running episode {ep + 1}/{num_episodes}")
         ep_return, _, terminated = run_episode(env, agent, mode, buffer)
         returns.append(np.sum(ep_return))
-        print(f"Episode {ep} | mean return: {np.sum(ep_return)} | terminated: {bool(terminated)}")
+        # print(f"Episode {ep} | mean return: {np.sum(ep_return)} | terminated: {bool(terminated)}")
 
     if mode == 'train':
         all_actor_loss_list = []
@@ -153,30 +153,30 @@ def run_environment(args=None):
     mean_actor_losses = np.zeros(ITERS)
     mean_critic_losses = np.zeros(ITERS)
 
-    plt.ion()
-    fig, axs = plt.subplots(1, 3, figsize=(10, 4))  # 3 subplots stacked vertically
+    # plt.ion()
+    # fig, axs = plt.subplots(1, 3, figsize=(10, 4))  # 3 subplots stacked vertically
 
-    # Lines for live updating
-    line_return, = axs[0].plot([], [], label='Mean Return', color='b')
-    line_actor, = axs[1].plot([], [], label='Mean Actor Loss', color='r')
-    line_critic, = axs[2].plot([], [], label='Mean Critic Loss', color='g')
+    # # Lines for live updating
+    # line_return, = axs[0].plot([], [], label='Mean Return', color='b')
+    # line_actor, = axs[1].plot([], [], label='Mean Actor Loss', color='r')
+    # line_critic, = axs[2].plot([], [], label='Mean Critic Loss', color='g')
 
     # Labels and titles
-    axs[0].set_ylabel('Mean Return')
-    axs[0].set_title('Training Progress (Avg Return per Iteration)')
-    axs[0].legend()
+    # axs[0].set_ylabel('Mean Return')
+    # axs[0].set_title('Training Progress (Avg Return per Iteration)')
+    # axs[0].legend()
 
-    axs[1].set_ylabel('Mean Actor Loss')
-    axs[1].set_title('Actor Loss over Iterations')
-    axs[1].legend()
+    # axs[1].set_ylabel('Mean Actor Loss')
+    # axs[1].set_title('Actor Loss over Iterations')
+    # axs[1].legend()
 
-    axs[2].set_xlabel('Iteration')
-    axs[2].set_ylabel('Mean Critic Loss')
-    axs[2].set_title('Critic Loss over Iterations')
-    axs[2].legend()
+    # axs[2].set_xlabel('Iteration')
+    # axs[2].set_ylabel('Mean Critic Loss')
+    # axs[2].set_title('Critic Loss over Iterations')
+    # axs[2].legend()
 
-    plt.tight_layout()
-    plt.show(block=False)
+    # plt.tight_layout()
+    # plt.show(block=False)
 
     for iteration in range(ITERS):
         print(f"Iteration {iteration + 1}/{ITERS}")
@@ -186,33 +186,35 @@ def run_environment(args=None):
         mean_actor_losses[iteration] = np.mean(actor_loss_list)
         mean_critic_losses[iteration] = np.mean(critic_loss)
 
-        np.save(f"results/returns_iteration_{iteration}.npy", returns)
-        np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
-        np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
-        np.save("results/_mean_returns.npy", mean_returns)
-        np.save("results/_mean_actor_losses.npy", mean_actor_losses)
-        np.save("results/_mean_critic_losses.npy", mean_critic_losses)
+        print("     Mean Return:", mean_returns[iteration])
+
+        # np.save(f"results/returns_iteration_{iteration}.npy", returns)
+        # np.save(f"results/actor_loss_iteration_{iteration}.npy", actor_loss_list)
+        # np.save(f"results/critic_loss_iteration_{iteration}.npy", critic_loss)
+        # np.save("results/_mean_returns.npy", mean_returns)
+        # np.save("results/_mean_actor_losses.npy", mean_actor_losses)
+        # np.save("results/_mean_critic_losses.npy", mean_critic_losses)
 
         # Update lines
-        iterations = np.arange(iteration + 1)
-        line_return.set_xdata(iterations)
-        line_return.set_ydata(mean_returns[:iteration + 1])
+        # iterations = np.arange(iteration + 1)
+        # line_return.set_xdata(iterations)
+        # line_return.set_ydata(mean_returns[:iteration + 1])
 
-        line_actor.set_xdata(iterations)
-        line_actor.set_ydata(mean_actor_losses[:iteration + 1])
+        # line_actor.set_xdata(iterations)
+        # line_actor.set_ydata(mean_actor_losses[:iteration + 1])
 
-        line_critic.set_xdata(iterations)
-        line_critic.set_ydata(mean_critic_losses[:iteration + 1])
+        # line_critic.set_xdata(iterations)
+        # line_critic.set_ydata(mean_critic_losses[:iteration + 1])
 
-        # Rescale axes
-        for ax in axs:
-            ax.relim()
-            ax.autoscale_view()
+        # # Rescale axes
+        # for ax in axs:
+        #     ax.relim()
+        #     ax.autoscale_view()
 
-        plt.pause(0.1)
+        # plt.pause(0.1)
 
-    plt.ioff()
-    plt.show()
+    # plt.ioff()
+    # plt.show()
     env.close()
 
 

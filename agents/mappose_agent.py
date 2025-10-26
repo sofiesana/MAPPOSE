@@ -93,7 +93,7 @@ class MAPPOSE(Agent):
                 log_prob = distribution.log_prob(action)
 
                 action_list.append(action.item())
-                log_prob_list.append(log_prob.item())
+                log_prob_list.append(log_prob.detach().cpu().numpy()[0][0])
                 next_hidden_states.append(h_next.squeeze().squeeze().detach().cpu().numpy())  # Remove singular dimension, convert to numpy & detach
 
         return action_list, log_prob_list, next_hidden_states
@@ -168,7 +168,7 @@ class MAPPOSE(Agent):
             with torch.no_grad():
                 old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx], h_init=hidden_states)
         else:
-            old_log_probs = old_log_probs.detach()
+            old_log_probs = torch.tensor(old_log_probs, dtype=torch.float32).to(self.device)
 
         policy_ratio = torch.exp(current_log_probs - old_log_probs)
 
@@ -245,6 +245,14 @@ class MAPPOSE(Agent):
             advantages_list_over_episodes.append(advantages)
             values_list_over_episodes.append(values)
 
+        # Normalize advantages across all episodes
+        all_advantages = torch.cat(advantages_list_over_episodes)
+        adv_mean = torch.mean(all_advantages)
+        adv_std = torch.std(all_advantages) + 1e-8
+
+        for i in range(len(advantages_list_over_episodes)):
+            advantages_list_over_episodes[i] = (advantages_list_over_episodes[i] - adv_mean) / adv_std
+
         return advantages_list_over_episodes, values_list_over_episodes
 
 
@@ -266,8 +274,8 @@ class MAPPOSE(Agent):
         
         advantages_over_episodes, _ = self.compute_all_GAEs(buffer, self.critic_model) # Shape: [num_episodes, episode_length]
 
+
         for batch_idx in range(len(agent_batches_list[0])):  # For each batch
-            # print("Num batches:", len(agent_batches_list[0]), "  Current batch:", batch_idx + 1)
             ### Update Actor Networks ###
             for n in range(self.num_agents):
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n, start_idxs_n = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]

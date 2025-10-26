@@ -41,7 +41,7 @@ class Buffer:
         self.dones[self.current_index] = dones
         self.hidden_states[self.current_index] = hidden_states
         self.old_log_probs[self.current_index] = log_probs
-        
+
         if dones:
             # print("Storing new episode index at:", self.current_index)
             self.end_episode_indices.append(self.current_index)
@@ -206,7 +206,6 @@ class Buffer:
                     i += window_size
         else:
             valid_starts = self.get_valid_start_indices_for_window(window_size)
-        # print("Valid start indices for batch sampling:", valid_starts)
         # Shuffle start indices
         rng = np.random.default_rng()
         rng.shuffle(valid_starts)
