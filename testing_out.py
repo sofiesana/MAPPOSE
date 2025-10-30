@@ -52,7 +52,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
         new_observation, reward, terminated, truncated, info = env.step(action)
 
         # apply reward shaping here
-        reward = shape_rewards(env, reward, observation, action, info)
+        reward = shape_rewards(env, reward)
         
         global_state = get_full_state(env, flatten=True)
         

@@ -24,7 +24,7 @@ def print_env_debug(env):
 # ------------------------------
 # Reward shaping
 # ------------------------------
-def shape_rewards(env, rewards, obs, actions, info):
+def shape_rewards(env, rewards):
     """
     +0.5 for picking up a requested shelf (detected as agent overlapping a requested shelf)
     """
