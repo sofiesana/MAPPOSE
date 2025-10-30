@@ -6,6 +6,7 @@ from util import get_full_state
 from buffer import Buffer
 import time
 
+from reward_shaping import shape_rewards
 from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
 import os
@@ -49,6 +50,10 @@ def run_episode(env, agent, mode, buffer: Buffer):
         # action = env.action_space.sample()  # Random action for placeholder
 
         new_observation, reward, terminated, truncated, info = env.step(action)
+
+        # apply reward shaping here
+        reward = shape_rewards(env, reward, observation, action, info)
+        
         global_state = get_full_state(env, flatten=True)
         
         buffer.store_transitions(
