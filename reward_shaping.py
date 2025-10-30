@@ -40,7 +40,7 @@ def shape_rewards(env, rewards, agent_positions, holding_shelf):
         if agents[y, x] > 0 and shelves[y, x] == 2:
             if not holding_shelf[idx]:
                 # agent just picked up the shelf
-                shaped_rewards[idx] += 0.5  # reward for pickup
+                shaped_rewards[idx] += 0.1  # reward for pickup
                 holding_shelf[idx] = True  # mark as now holding
                 # print(f"Agent {idx} picked up requested shelf at {(y, x)}")
         else:
