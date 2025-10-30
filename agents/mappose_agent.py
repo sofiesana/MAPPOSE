@@ -248,13 +248,6 @@ class MAPPOSE(Agent):
             advantages_list_over_episodes.append(advantages)
             values_list_over_episodes.append(values)
 
-        # Normalize advantages across all episodes
-        all_advantages = torch.cat(advantages_list_over_episodes)
-        adv_mean = torch.mean(all_advantages)
-        adv_std = torch.std(all_advantages) + 1e-8
-
-        for i in range(len(advantages_list_over_episodes)):
-            advantages_list_over_episodes[i] = (advantages_list_over_episodes[i] - adv_mean) / adv_std
 
         return advantages_list_over_episodes, values_list_over_episodes
 
@@ -276,7 +269,6 @@ class MAPPOSE(Agent):
             agent_batches_list.append(batches)
         
         advantages_over_episodes, _ = self.compute_all_GAEs(buffer, self.critic_model) # Shape: [num_episodes, episode_length]
-
 
         for batch_idx in range(len(agent_batches_list[0])):  # For each batch
             ### Update Actor Networks ###
@@ -312,7 +304,7 @@ class MAPPOSE(Agent):
                             advantages_not_n[i] = advantages_traj
 
                         shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, None, n, return_log_probs=True)
-                        shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
+                        shared_experience_ratio = torch.exp(current_log_probs_agent_n.detach() - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
                         shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  
 
                         total_shared_loss += shared_loss
@@ -322,9 +314,9 @@ class MAPPOSE(Agent):
                 actor_loss_list.append(total_actor_loss.item())
 
                 # Optimize policy network
-                # POTENTIAL ISSUE!! - Updating each agent one at a time could cause issues since changes prob in loss
                 self.optimizers_actor_list[n].zero_grad()
                 total_actor_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor_models_list[n].parameters(), max_norm=0.5) # Clip Gradients (to 0.5 aligning with Mava implementation)
                 self.optimizers_actor_list[n].step()
 
 
@@ -339,6 +331,7 @@ class MAPPOSE(Agent):
             # Optimize critic network
             self.optimizer_critic.zero_grad()
             critic_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic_model.parameters(), max_norm=0.5) # Clip Gradients
             self.optimizer_critic.step()
 
         return actor_loss_list, critic_loss.item()
