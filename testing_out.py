@@ -5,6 +5,7 @@ import numpy as np
 from util import get_full_state
 from buffer import Buffer
 import time
+import argparse
 
 from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
@@ -133,12 +134,14 @@ def run_environment(args):
     agent_factory = AgentFactory()
     # plotter = LiveLossPlotter()
     env = gym.make("rware-tiny-2ag-v2")
-    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=2048)
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=args.batch_size, lr=args.lr)
     os.mkdir("results") if not os.path.exists("results") else None
 
     mean_returns = np.zeros(ITERS)
     mean_actor_losses = np.zeros(ITERS)
     mean_critic_losses = np.zeros(ITERS)
+
+    print("Training agent with learning rate:", args.lr, "and batch size:", args.batch_size)
 
     for iteration in range(ITERS):
         start_time = time.time()
@@ -169,4 +172,8 @@ def run_environment(args):
 
 
 if __name__ == "__main__":
-    run_environment(None)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--lr', type=float, default=0.0005, help='Learning rate for the agent')
+    parser.add_argument('--batch_size', type=int, default=8, help='Batch size for training the agent')
+    args = parser.parse_args()
+    run_environment(args)
