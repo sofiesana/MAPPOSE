@@ -53,7 +53,6 @@ def run_episode(env, agent, mode, buffer: Buffer):
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
 
-        # print("new observation:", new_observation)
 
         # apply reward shaping here
         agent_positions = [(ag.y, ag.x) for ag in env.unwrapped.agents]
