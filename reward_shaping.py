@@ -36,15 +36,18 @@ def shape_rewards(env, rewards, agent_positions, holding_shelf):
     shaped_rewards = np.array(rewards, dtype=np.float32)
 
     for idx, (y, x) in enumerate(agent_positions):
-        # check agent is present and standing on a requested shelf
-        if agents[y, x] > 0 and shelves[y, x] == 2:
-            if not holding_shelf[idx]:
-                # agent just picked up the shelf
-                shaped_rewards[idx] += 0.1  # reward for pickup
-                holding_shelf[idx] = True  # mark as now holding
-                # print(f"Agent {idx} picked up requested shelf at {(y, x)}")
-        else:
-            # agent not on shelf, mark as not holding
-            holding_shelf[idx] = False
+            # Check for delivery: agent holding a shelf on a goal cell
+            if holding_shelf[idx] == True and shelves[y, x] == 3:
+                holding_shelf[idx] = False  # reset holding after delivery
+                
+                # print(f"Agent {idx} delivered shelf at {(y, x)}")
 
+            # Check for pickup: agent on a requested shelf and not already holding
+            if agents[y, x] > 0 and shelves[y, x] == 2:
+                if not holding_shelf[idx]:
+                    shaped_rewards[idx] += 0.1  # reward for pickup
+                    holding_shelf[idx] = True
+                    # print(f"Agent {idx} picked up requested shelf at {(y, x)}")
+
+    
     return shaped_rewards, holding_shelf
