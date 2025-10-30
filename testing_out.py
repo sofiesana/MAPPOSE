@@ -43,19 +43,19 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
     while not episode_ended:
-        # env.render()
+        env.render()
 
         action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
         # action, log_probs, new_hidden_states = agent.choose_random_action()
         # action = env.action_space.sample()  # Random action for placeholder
 
         new_observation, reward, terminated, truncated, info = env.step(action)
+        global_state = get_full_state(env, flatten=True)
 
         # apply reward shaping here
-        reward = shape_rewards(env, reward)
-        
-        global_state = get_full_state(env, flatten=True)
-        
+        agent_positions = [(ag.y, ag.x) for ag in env.unwrapped.agents]
+        reward = shape_rewards(env, reward, agent_positions)
+
         buffer.store_transitions(
             global_states=global_state,
             observations=observation,
