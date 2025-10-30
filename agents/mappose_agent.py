@@ -35,6 +35,7 @@ class MAPPOSE(Agent):
         self.beta = beta
         self.seq_size = seq_size
         self.entropy_coeff = entropy_coeff
+        self.holding_shelf = np.zeros(self.num_agents, dtype=bool)
 
         # Initialize the state-value networks and their target networks
         self.critic_model = Critic_Network(map_size=state_dim)

@@ -24,34 +24,27 @@ def print_env_debug(env):
 # ------------------------------
 # Reward shaping
 # ------------------------------
-def shape_rewards(env, rewards, agent_positions):
+def shape_rewards(env, rewards, agent_positions, holding_shelf):
     """
     +0.5 for picking up a requested shelf (detected as agent overlapping a requested shelf)
     """
 
     global_state = get_full_state(env, flatten=False)
-
     shelves = global_state[0]
     agents = global_state[1]
 
     shaped_rewards = np.array(rewards, dtype=np.float32)
 
     for idx, (y, x) in enumerate(agent_positions):
-        # check that this agent is indeed on the grid and facing some direction
+        # check agent is present and standing on a requested shelf
         if agents[y, x] > 0 and shelves[y, x] == 2:
-            shaped_rewards[idx] += 0.03
+            if not holding_shelf[idx]:
+                # agent just picked up the shelf
+                shaped_rewards[idx] += 0.5  # reward for pickup
+                holding_shelf[idx] = True  # mark as now holding
+                # print(f"Agent {idx} picked up requested shelf at {(y, x)}")
+        else:
+            # agent not on shelf, mark as not holding
+            holding_shelf[idx] = False
 
-            
-            # testing if it works
-            # print("\n🎉🎉🎉 CELEBRATION! 🎉🎉🎉")
-            # print(f"Agent {idx} picked up a requested shelf at position (y={y}, x={x})")
-            # print(f"Reward before shaping: {rewards[idx]}")
-            # print(f"Reward after shaping: {shaped_rewards[idx]}")
-
-            # # Print full layers
-            # print("Full shelves layer:")
-            # print(shelves)
-            # print("Full agent direction layer:")
-            # print(agents)
-
-    return shaped_rewards
+    return shaped_rewards, holding_shelf

@@ -34,6 +34,7 @@ def inspect_environment(env):
 def run_episode(env, agent, mode, buffer: Buffer):
     """Run a single episode and return the episode return"""
 
+    agent.holding_shelf[:] = False
     n_agents = len(env.observation_space)
     
     observation, _ = env.reset()
@@ -43,7 +44,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
     while not episode_ended:
-        # env.render()
+        env.render()
 
         action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
         # action, log_probs, new_hidden_states = agent.choose_random_action()
@@ -54,7 +55,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
         # apply reward shaping here
         agent_positions = [(ag.y, ag.x) for ag in env.unwrapped.agents]
-        reward = shape_rewards(env, reward, agent_positions)
+        reward, agent.holding_shelf = shape_rewards(env, reward, agent_positions, agent.holding_shelf)
 
         buffer.store_transitions(
             global_states=global_state,
