@@ -40,6 +40,8 @@ def shape_rewards(env, rewards, agent_positions):
         # check that this agent is indeed on the grid and facing some direction
         if agents[y, x] > 0 and shelves[y, x] == 2:
             shaped_rewards[idx] += 0.03
+
+            
             # testing if it works
             # print("\n🎉🎉🎉 CELEBRATION! 🎉🎉🎉")
             # print(f"Agent {idx} picked up a requested shelf at position (y={y}, x={x})")

@@ -43,7 +43,7 @@ def run_episode(env, agent, mode, buffer: Buffer):
 
     hidden_states = np.zeros((n_agents, buffer.hidden_state_dim))  # example initial hidden state 
     while not episode_ended:
-        env.render()
+        # env.render()
 
         action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
         # action, log_probs, new_hidden_states = agent.choose_random_action()
