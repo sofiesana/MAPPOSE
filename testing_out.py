@@ -6,6 +6,7 @@ from util import get_full_state
 from buffer import Buffer
 import time
 import argparse
+import sys
 
 from agents.agent_factory import AgentFactory
 from plotting import LiveLossPlotter
@@ -13,7 +14,7 @@ import os
 
 N_COLLECTION_EPISODES = 10
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
-ITERS = 1000
+ITERS = 4000
 
 def inspect_environment(env):
     print("Observation space:", env.observation_space)
@@ -45,8 +46,8 @@ def run_episode(env, agent, mode, buffer: Buffer):
     while not episode_ended:
         # env.render()
 
-        action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
-        # action, log_probs, new_hidden_states = agent.choose_random_action()
+        # action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
+        action, log_probs, new_hidden_states = agent.choose_random_action()
         # action = env.action_space.sample()  # Random action for placeholder
 
         new_observation, reward, terminated, truncated, info = env.step(action)
@@ -90,9 +91,6 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     # buffer.print_attributes()
 
-    if mode == 'test':
-        agent.set_test_mode()
-
     pre_collect_time = time.time()
 
     for ep in range(num_episodes):
@@ -119,11 +117,13 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
             # plotter.save("results/actor_loss_plot_{epoch}.png")
 
         agent.update_prev_actor_models() # Update prev network to current before optimizing current
+
+        return returns, all_actor_loss_list, all_critic_loss
+    
     elif mode == 'test':
-        print(f"Average test return: {np.mean(agent.test_returns)}")
+        print(f"Average test return: {np.mean(returns)} over {num_episodes} episodes")
 
-
-    return returns, all_actor_loss_list, all_critic_loss
+        return returns, _, _
 
 def make_env():
     return gym.make("rware-tiny-2ag-v2")
@@ -148,7 +148,7 @@ def run_environment(args):
         env.reset()
         print(f"Iteration {iteration + 1}/{ITERS}")
     
-        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
+        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='test')
         # # plotter.update(np.mean(actor_loss_list))
 
         mean_returns[iteration] = np.mean(returns)
@@ -176,4 +176,5 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.0005, help='Learning rate for the agent')
     parser.add_argument('--batch_size', type=int, default=8, help='Batch size for training the agent')
     args = parser.parse_args()
+
     run_environment(args)
