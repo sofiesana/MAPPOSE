@@ -15,7 +15,7 @@ from buffer import Buffer
 from network import ActorNetwork, Critic_Network
 
 class MAPPOSE(Agent):
-    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=100, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
+    def __init__(self, state_dim, obs_dim, n_actions, num_agents, batch_size, lr, discount_factor, seq_size=128, beta = 1, epsilon = 0.2, entropy_coeff=0.005):
         super().__init__(n_actions, lr, discount_factor)
         """Initialize the MAPPOSE agents
         Args:
@@ -35,7 +35,6 @@ class MAPPOSE(Agent):
         self.beta = beta
         self.seq_size = seq_size
         self.entropy_coeff = entropy_coeff
-        self.holding_shelf = np.zeros(self.num_agents, dtype=bool)
 
         # Initialize the state-value networks and their target networks
         self.critic_model = Critic_Network(map_size=state_dim)
@@ -64,39 +63,44 @@ class MAPPOSE(Agent):
             self.actor_prev_models_list[agent_idx].load_state_dict(self.actor_models_list[agent_idx].state_dict())
    
     def choose_action(self, obs_list, hidden_list):
-        """Choose actions for all agents based on their observations
-        Args:
-            - obs_list: list of observations for each agent
-        Returns:
-            - action_list: list of actions for each agent
-            - log_prob_list: list of log probabilities of the chosen actions
         """
-
-        action_list = []
-        log_prob_list = []
-        next_hidden_states = []
+        Choose actions for all agents in all environments based on their observations.
+        Args:
+            - obs_list: tuple of arrays, each (n_envs, obs_dim) for each agent
+            - hidden_list: array (n_envs, n_agents, hidden_dim)
+        Returns:
+            - action_list: list of arrays (n_envs, n_agents)
+            - log_prob_list: list of arrays (n_envs, n_agents)
+            - next_hidden_states: list of arrays (n_envs, n_agents, hidden_dim)
+        """
+        n_envs = obs_list[0].shape[0]
+        n_agents = len(self.actor_models_list)
+        action_list = np.zeros((n_envs, n_agents), dtype=int)
+        log_prob_list = np.zeros((n_envs, n_agents))
+        next_hidden_states = np.zeros((n_envs, n_agents, hidden_list.shape[2]))
 
         with torch.no_grad():
+            # For each agent, process all envs in batch
+            for agent_idx, actor in enumerate(self.actor_models_list):
+                obs_agent = torch.tensor(obs_list[agent_idx], dtype=torch.float32).to(self.device)  # (n_envs, obs_dim)
+                hidden_agent = torch.tensor(hidden_list[:, agent_idx, :], dtype=torch.float32).to(self.device)  # (n_envs, hidden_dim)
 
-            # Convert to tensors
-            obs_list = torch.tensor(np.array(obs_list), dtype=torch.float32).to(self.device)
-            hidden_list = torch.tensor(np.array(hidden_list), dtype=torch.float32).to(self.device)
-
-            for actor, obs, h in zip(self.actor_models_list, obs_list, hidden_list):
-                obs_input = torch.unsqueeze(obs, dim=0).unsqueeze(dim=0)  # Add batch and seq dimensions
-                h_input = torch.unsqueeze(h, dim=0).unsqueeze(dim=0)  # Add num_layers dimension
+                # Add batch and seq dimensions: (batch, seq, obs_dim) and (num_layers, batch, hidden_dim)
+                obs_input = obs_agent.unsqueeze(1)  # (n_envs, 1, obs_dim)
+                h_input = hidden_agent.unsqueeze(0)  # (1, n_envs, hidden_dim)
                 h_input = h_input.contiguous()
 
-                logits, h_next = actor(obs_input, h_input)
+                logits, h_next = actor(obs_input, h_input)  # logits: (n_envs, 1, n_actions), h_next: (1, n_envs, hidden_dim)
+                logits = logits.squeeze(1)  # (n_envs, n_actions)
+                h_next = h_next.squeeze(0)  # (n_envs, hidden_dim)
 
                 distribution = torch.distributions.Categorical(logits=logits)
+                action = distribution.sample()  # (n_envs,)
+                log_prob = distribution.log_prob(action)  # (n_envs,)
 
-                action = distribution.sample()
-                log_prob = distribution.log_prob(action)
-
-                action_list.append(action.item())
-                log_prob_list.append(log_prob.detach().cpu().numpy()[0][0])
-                next_hidden_states.append(h_next.squeeze().squeeze().detach().cpu().numpy())  # Remove singular dimension, convert to numpy & detach
+                action_list[:, agent_idx] = action.cpu().numpy()
+                log_prob_list[:, agent_idx] = log_prob.cpu().numpy()
+                next_hidden_states[:, agent_idx, :] = h_next.cpu().numpy()
 
         return action_list, log_prob_list, next_hidden_states
     
@@ -172,7 +176,7 @@ class MAPPOSE(Agent):
             with torch.no_grad():
                 old_log_probs = self.get_prob_action_given_obs(actions_seq, obs_seq, self.actor_prev_models_list[agent_idx], h_init=hidden_states)
         else:
-            old_log_probs = torch.tensor(old_log_probs, dtype=torch.float32).to(self.device)
+            old_log_probs = old_log_probs.detach()
 
         policy_ratio = torch.exp(current_log_probs - old_log_probs)
 
@@ -229,8 +233,11 @@ class MAPPOSE(Agent):
 
         # Loop over each episode
         for states, rewards_sums in zip(states_tensor, rewards_sum_tensor):
+            print("states.shape:", states.shape, "rewards_sums.shape:", rewards_sums.shape)
             with torch.no_grad():
                 values = critic_model(states).squeeze(-1)
+
+            print("values.shape:", values.shape)
 
             # Bootstrap next value
             bootstrap_value = torch.tensor([0.0], device=values.device)
@@ -248,7 +255,6 @@ class MAPPOSE(Agent):
 
             advantages_list_over_episodes.append(advantages)
             values_list_over_episodes.append(values)
-
 
         return advantages_list_over_episodes, values_list_over_episodes
 
@@ -272,6 +278,7 @@ class MAPPOSE(Agent):
         advantages_over_episodes, _ = self.compute_all_GAEs(buffer, self.critic_model) # Shape: [num_episodes, episode_length]
 
         for batch_idx in range(len(agent_batches_list[0])):  # For each batch
+            # print("Num batches:", len(agent_batches_list[0]), "  Current batch:", batch_idx + 1)
             ### Update Actor Networks ###
             for n in range(self.num_agents):
                 states, obs_seq_n, actions_seq_n, rewards_seq_n, dones_seq_n, hidden_states_seq_n, old_log_probs_seq_n, start_idxs_n = agent_batches_list[n][batch_idx]  # Get batch of agent n's trajectories, should be shape [batch_size, seq_len, ...]
@@ -305,7 +312,7 @@ class MAPPOSE(Agent):
                             advantages_not_n[i] = advantages_traj
 
                         shared_clipped_obj, entropies_n, current_log_probs_agent_n = self.get_clipped_objective(actions_seq_not_n, obs_seq_not_n, advantages_not_n, None, None, n, return_log_probs=True)
-                        shared_experience_ratio = torch.exp(current_log_probs_agent_n.detach() - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
+                        shared_experience_ratio = torch.exp(current_log_probs_agent_n - old_log_probs_seq_not_n) # Importance sampling between agent n and not_n
                         shared_loss = -(shared_clipped_obj + (entropies_n * self.entropy_coeff)) * shared_experience_ratio  
 
                         total_shared_loss += shared_loss
@@ -315,9 +322,9 @@ class MAPPOSE(Agent):
                 actor_loss_list.append(total_actor_loss.item())
 
                 # Optimize policy network
+                # POTENTIAL ISSUE!! - Updating each agent one at a time could cause issues since changes prob in loss
                 self.optimizers_actor_list[n].zero_grad()
                 total_actor_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.actor_models_list[n].parameters(), max_norm=0.5) # Clip Gradients (to 0.5 aligning with Mava implementation)
                 self.optimizers_actor_list[n].step()
 
 
@@ -332,7 +339,6 @@ class MAPPOSE(Agent):
             # Optimize critic network
             self.optimizer_critic.zero_grad()
             critic_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic_model.parameters(), max_norm=0.5) # Clip Gradients
             self.optimizer_critic.step()
 
         return actor_loss_list, critic_loss.item()

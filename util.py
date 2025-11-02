@@ -116,6 +116,6 @@ def get_full_state(env, flatten=True):
         # Efficiently add shelf info and goals, then stack as numpy array
         all_shelf_info = all_shelf_info + 3 * s[2]  # shelves + goals
         final_global_state = np.stack([all_shelf_info, all_agent_info])
-        print("Final global state shape:", final_global_state.shape)
-        print("Final global state array:\n", final_global_state)
+        # print("Final global state shape:", final_global_state.shape)
+        # print("Final global state array:\n", final_global_state)
         return final_global_state

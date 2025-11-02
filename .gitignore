@@ -14,3 +14,9 @@ run_1/
 
 log_files/
 
+# ignore all files ending in vect.py
+new_buffer.py
+buffer_vect.py
+agents/mappose_agent_vect.py
+agents/agent_factory_vect.py
+testing_out_vect.py

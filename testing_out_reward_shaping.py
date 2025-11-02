@@ -5,8 +5,6 @@ import numpy as np
 from util import get_full_state
 from buffer import Buffer
 import time
-import argparse
-import sys
 
 from reward_shaping import shape_rewards
 from agents.agent_factory import AgentFactory
@@ -15,7 +13,7 @@ import os
 
 N_COLLECTION_EPISODES = 10
 N_TRAIN_EPOCHS_PER_COLLECTION = 3
-ITERS = 4000
+ITERS = 3000
 
 def inspect_environment(env):
     print("Observation space:", env.observation_space)
@@ -48,12 +46,17 @@ def run_episode(env, agent, mode, buffer: Buffer):
     while not episode_ended:
         # env.render()
 
-        # action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
-        action, log_probs, new_hidden_states = agent.choose_random_action()
+        action, log_probs, new_hidden_states = agent.choose_action(observation, hidden_states)
+        # action, log_probs, new_hidden_states = agent.choose_random_action()
         # action = env.action_space.sample()  # Random action for placeholder
 
         new_observation, reward, terminated, truncated, info = env.step(action)
         global_state = get_full_state(env, flatten=True)
+
+
+        # apply reward shaping here
+        agent_positions = [(ag.y, ag.x) for ag in env.unwrapped.agents]
+        reward, agent.holding_shelf = shape_rewards(env, reward, agent_positions, agent.holding_shelf)
 
         buffer.store_transitions(
             global_states=global_state,
@@ -93,6 +96,9 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
                     observation_dim=observation_dim, hidden_state_dim=hidden_state_dim)
     # buffer.print_attributes()
 
+    if mode == 'test':
+        agent.set_test_mode()
+
     pre_collect_time = time.time()
 
     for ep in range(num_episodes):
@@ -119,13 +125,11 @@ def run_episodes(env, agent, num_episodes, plotter, mode='train'):
             # plotter.save("results/actor_loss_plot_{epoch}.png")
 
         agent.update_prev_actor_models() # Update prev network to current before optimizing current
-
-        return returns, all_actor_loss_list, all_critic_loss
-    
     elif mode == 'test':
-        print(f"Average test return: {np.mean(returns)} over {num_episodes} episodes")
+        print(f"Average test return: {np.mean(agent.test_returns)}")
 
-        return returns, _, _
+
+    return returns, all_actor_loss_list, all_critic_loss
 
 def make_env():
     return gym.make("rware-tiny-2ag-v2")
@@ -135,22 +139,20 @@ def run_environment(args):
     # set up looping through iters
     agent_factory = AgentFactory()
     # plotter = LiveLossPlotter()
-    env = gym.make("rware-tiny-2ag-v2")
-    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=args.batch_size, lr=args.lr)
+    env = gym.make("rware-tiny-2ag-easy-v2")
+    agent = agent_factory.create_agent(agent_type="MAPPOSE", env=env, batch_size=2048)
     os.mkdir("results") if not os.path.exists("results") else None
 
     mean_returns = np.zeros(ITERS)
     mean_actor_losses = np.zeros(ITERS)
     mean_critic_losses = np.zeros(ITERS)
 
-    print("Training agent with learning rate:", args.lr, "and batch size:", args.batch_size)
-
     for iteration in range(ITERS):
         start_time = time.time()
         env.reset()
         print(f"Iteration {iteration + 1}/{ITERS}")
     
-        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='test')
+        returns, actor_loss_list, critic_loss = run_episodes(env, agent, N_COLLECTION_EPISODES, None, mode='train')
         # # plotter.update(np.mean(actor_loss_list))
 
         mean_returns[iteration] = np.mean(returns)
@@ -174,9 +176,4 @@ def run_environment(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--lr', type=float, default=0.0005, help='Learning rate for the agent')
-    parser.add_argument('--batch_size', type=int, default=8, help='Batch size for training the agent')
-    args = parser.parse_args()
-
-    run_environment(args)
+    run_environment(None)

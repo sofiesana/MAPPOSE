@@ -34,30 +34,57 @@ class Buffer:
         print(f"Current index: {self.current_index}")
         
     def store_transitions(self, global_states, observations, actions, rewards, dones, hidden_states, log_probs):
-        self.global_states[self.current_index] = global_states
-        self.observations[self.current_index] = observations
-        self.actions[self.current_index] = actions
-        self.rewards[self.current_index] = rewards
-        self.dones[self.current_index] = dones
-        self.hidden_states[self.current_index] = hidden_states
-        self.old_log_probs[self.current_index] = log_probs
+        """
+        Store transitions for a batch of parallel environments.
+        Shapes:
+            global_states: (n_envs, global_state_dim)
+            observations: tuple of arrays, each (n_envs, obs_dim) for each agent
+            actions: (n_envs, n_agents)
+            rewards: (n_envs,)
+            dones: (n_envs,)
+            hidden_states: (n_envs, n_agents, hidden_state_dim)
+            log_probs: (n_envs, n_agents)
+        """
+        #  print the shapes of everything
+        # print("Storing transitions:")
+        # print(" global_states shape:", global_states.shape)
+        # print(" observations tuple len:", len(observations), "observations[0].shape:", observations[0].shape)
+        # print(" actions shape:", actions.shape)
+        # print(" rewards shape:", rewards.shape)
+        # print(" dones shape:", dones.shape)
+        # print(" hidden_states shape:", hidden_states.shape)
+        # print(" log_probs shape:", log_probs.shape)
 
-        if np.any(dones):
-            # print("Storing new episode index at:", self.current_index)
-            self.end_episode_indices.append(self.current_index)
+        n_envs = global_states.shape[0]
+        # observations: tuple of arrays, each (n_envs, obs_dim)
+        # Stack agent observations for each env: (n_envs, n_agents, obs_dim)
+        obs_stacked = np.stack([np.array(agent_obs) for agent_obs in observations], axis=1)  # (n_envs, n_agents, obs_dim)
+        for env_idx in range(n_envs):
+            self.global_states[self.current_index] = global_states[env_idx]
+            self.observations[self.current_index] = obs_stacked[env_idx]
+            self.actions[self.current_index] = actions[env_idx]
+            # If rewards is (n_envs,), broadcast to all agents
+            self.rewards[self.current_index] = np.array([rewards[env_idx]] * self.n_agents)
+            # Dones: (n_envs,) -> broadcast to all agents
+            self.dones[self.current_index] = np.array([dones[env_idx]] * self.n_agents)
+            self.hidden_states[self.current_index] = hidden_states[env_idx]
+            self.old_log_probs[self.current_index] = log_probs[env_idx]
 
-        if not self.buffer_filled:
-            if self.current_index == self.size - 1:
-                self.buffer_filled = True
-                self.current_index = 0
+            done_flag = dones[env_idx]
+            if done_flag:
+                self.end_episode_indices.append(self.current_index)
+
+            if not self.buffer_filled:
+                if self.current_index == self.size - 1:
+                    self.buffer_filled = True
+                    self.current_index = 0
+                else:
+                    self.current_index = (self.current_index + 1) % self.size
             else:
                 self.current_index = (self.current_index + 1) % self.size
-        else:
-            self.current_index = (self.current_index + 1) % self.size
 
-        if self.current_index in self.end_episode_indices:
-            # new episode has been overwritten, remove from list
-            self.end_episode_indices.remove(self.current_index)
+            if self.current_index in self.end_episode_indices:
+                self.end_episode_indices.remove(self.current_index)
 
     def increase_index(self):
         self.current_index = (self.current_index + 1) % self.size
@@ -206,6 +233,7 @@ class Buffer:
                     i += window_size
         else:
             valid_starts = self.get_valid_start_indices_for_window(window_size)
+        # print("Valid start indices for batch sampling:", valid_starts)
         # Shuffle start indices
         rng = np.random.default_rng()
         rng.shuffle(valid_starts)
