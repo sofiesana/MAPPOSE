@@ -36,7 +36,6 @@ def inspect_environment(env):
 def run_episode(env, agent, mode, buffer: Buffer):
     """Run a single episode and return the episode return"""
 
-    agent.holding_shelf[:] = False
     n_agents = len(env.observation_space)
     
     observation, _ = env.reset()
